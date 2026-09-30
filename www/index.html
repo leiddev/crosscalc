@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cpp-httplib + webview + cpp-embedlib + nlohmann/json</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="glow glow--a"></div>
+<div class="glow glow--b"></div>
+
+<div class="app">
+  <header class="hero">
+    <h1>
+      <span class="lib lib--httplib">cpp-httplib</span>
+      <span class="plus">+</span>
+      <span class="lib lib--webview">webview</span>
+      <span class="plus">+</span>
+      <span class="lib lib--embed">cpp-embedlib</span>
+      <span class="plus">+</span>
+      <span class="lib lib--json">nlohmann/json</span>
+    </h1>
+    <p class="hero__sub">
+      本地 C++ HTTP 服务 · 原生 WebView2 窗口 · 前端资源已编译进 exe（运行时无外部文件）
+    </p>
+    <div class="badges" id="badges">
+      <span class="badge badge--muted">正在连接本地服务…</span>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- ① HTTP 请求（走 cpp-httplib） -->
+    <section class="card">
+      <h2><span class="idx">①</span> HTTP API</h2>
+      <p class="hint">
+        点击按钮，页面用 <code>fetch()</code> 请求
+        <code>http://127.0.0.1:&lt;随机端口&gt;</code>，由 C++（cpp-httplib）处理。
+      </p>
+
+      <div class="row">
+        <button data-call="hello">GET /api/hello</button>
+        <button data-call="time">GET /api/time</button>
+        <button data-call="info">GET /api/info</button>
+        <button data-call="assets">GET /api/assets</button>
+      </div>
+
+      <label class="field">
+        <span>回显文本</span>
+        <input id="echo-input" type="text" value="你好，C++！">
+      </label>
+      <div class="row">
+        <button data-call="echo">GET /api/echo</button>
+      </div>
+
+      <label class="field">
+        <span>加法（POST 表单）</span>
+        <span class="calc">
+          <input id="num-a" type="number" value="12" step="any">
+          <b>+</b>
+          <input id="num-b" type="number" value="30" step="any">
+        </span>
+      </label>
+      <div class="row">
+        <button data-call="add">POST /api/add</button>
+      </div>
+    </section>
+
+    <!-- ② 原生调用（走 webview_bind，不经 HTTP） -->
+    <section class="card">
+      <h2><span class="idx">②</span> 原生调用</h2>
+      <p class="hint">
+        这些按钮<strong>不经过 HTTP</strong>：JS 通过 <code>webview_bind</code>
+        直接调用 C++ 函数并拿到返回值（Promise）。
+      </p>
+
+      <label class="field">
+        <span>传给 C++ 的文本</span>
+        <input id="native-input" type="text" value="hello from JavaScript">
+      </label>
+      <div class="row">
+        <button data-native="echo" class="btn--alt">cppNativeEcho()</button>
+      </div>
+      <div class="row">
+        <button data-native="hwnd" class="ghost">取原生窗口句柄</button>
+        <button data-native="close" class="danger">关闭窗口（webview_terminate）</button>
+      </div>
+
+      <p class="hint hint--foot">
+        静态资源来自 <code>Web::FS</code>：<code>httplib::mount(svr, Web::FS)</code>
+        把内嵌文件挂到了 <code>/</code>。
+      </p>
+    </section>
+
+    <!-- ③ 日志 -->
+    <section class="card card--log">
+      <h2>
+        <span class="idx">③</span> 通信日志
+        <span class="counter" id="log-count">0</span>
+      </h2>
+      <ul class="log" id="log"></ul>
+      <div class="row row--end">
+        <button id="clear-log" class="ghost">清空</button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <code>index.html</code> / <code>style.css</code> / <code>app.js</code> 由
+    <strong>cpp-embedlib</strong> 编译进可执行文件 ·
+    窗口由 <strong>webview</strong> 创建 ·
+    接口由 <strong>cpp-httplib</strong> 提供 ·
+    JSON 由 <strong>nlohmann/json</strong> 处理
+  </footer>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

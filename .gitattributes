@@ -1,0 +1,33 @@
+# 统一换行符：仓库里一律按 LF 存储
+* text=auto eol=lf
+
+# Windows 脚本 / VS 工程文件保留 CRLF
+*.bat             text eol=crlf
+*.cmd             text eol=crlf
+*.ps1             text eol=crlf
+*.sln             text eol=crlf
+*.vcxproj         text eol=crlf
+*.vcxproj.filters text eol=crlf
+
+# 二进制文件：不做换行转换、不参与 diff
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.icns  binary
+*.exe   binary
+*.dll   binary
+*.lib   binary
+*.pdb   binary
+*.zip   binary
+*.7z    binary
+*.nupkg binary
+
+# 内嵌前端属于项目源码，让语言统计正确显示
+www/*.html linguist-language=HTML
+www/*.css  linguist-language=CSS
+www/*.js   linguist-language=JavaScript
+
+# 文档不参与语言统计
+*.md linguist-documentation

@@ -1,0 +1,82 @@
+name: release
+
+# 推一个 tag（如 v0.1.0）时：先复用 build.yml 在 Windows / Linux 各编译一次，
+# 再把两份二进制挂到同名 Release 上 —— 这样 Release 里的东西一定是从该 tag 编出来的。
+#
+# 约定（与 GitHub 网页端的 SemVer 惯例一致）：tag 里带连字符的按预发布处理，
+# 例如 v0.1.0-rc1 会发布为 Pre-release，不会顶掉 "Latest release"。
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  # 复用 CI 的两个平台构建：同一 run，产物用 download-artifact 直接取
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # 创建 Release 需要写权限（用 CI 自带的 GITHUB_TOKEN）
+    steps:
+      # checkout 是为了让下面的发布说明能读仓库里的 release-notes/<tag>.md
+      # （顺带 gh 也能从 git 远程推断出仓库，不过下面还是显式给了 GH_REPO）
+      - uses: actions/checkout@v5
+
+      - name: 取回 Windows 产物
+        uses: actions/download-artifact@v7
+        with:
+          name: webview-demo-win-x64
+          path: dist/win
+
+      - name: 取回 Linux 产物
+        uses: actions/download-artifact@v7
+        with:
+          name: webview-demo-linux-x64
+          path: dist/linux
+
+      - name: 整理成发布用的文件名
+        run: |
+          set -euo pipefail
+          exe=$(find dist/win   -type f -name '*.exe' | head -n1)
+          bin=$(find dist/linux -type f -name 'webview-demo' | head -n1)
+          if [ -z "$exe" ] || [ -z "$bin" ]; then
+            echo "没找到构建产物：exe='$exe' bin='$bin'"; find dist -type f; exit 1
+          fi
+          mkdir -p release
+          cp "$exe" "release/webview-demo-${GITHUB_REF_NAME}-windows-x64.exe"
+          cp "$bin" "release/webview-demo-${GITHUB_REF_NAME}-linux-x64"
+          chmod +x "release/webview-demo-${GITHUB_REF_NAME}-linux-x64"
+          ls -lh release
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 显式给仓库上下文：gh 是靠本地 git 远程来推断仓库的，写出来最稳
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # 发布说明：优先手写的 release-notes/<tag>.md，其次根目录 RELEASE_NOTES.md，
+          # 都没有才回退到 --generate-notes（它列的是合并的 PR，本仓库直接 push 的提交不会出现）
+          notes=(--generate-notes)
+          for f in "release-notes/$GITHUB_REF_NAME.md" RELEASE_NOTES.md; do
+            if [ -f "$f" ]; then
+              notes=(--notes-file "$f")
+              echo "发布说明取自 $f"
+              break
+            fi
+          done
+          args=(--title "$GITHUB_REF_NAME" "${notes[@]}")
+          # 带连字符的 tag 按预发布处理，和 GitHub 网页端的 SemVer 惯例一致
+          case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease) ;; esac
+          # 失败时把 gh 的输出逐行贴成 annotation：release 只在推 tag 时跑，
+          # 不看日志很难定位（也方便非维护者从检查页面直接看到原因）
+          if ! gh release create "$GITHUB_REF_NAME" "${args[@]}" release/* 2>&1 | tee /tmp/gh.log; then
+            tail -n 20 /tmp/gh.log | while IFS= read -r line; do echo "::error::$line"; done
+            exit 1
+          fi

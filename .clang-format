@@ -1,0 +1,57 @@
+---
+# C++ 代码风格
+Language: Cpp
+BasedOnStyle: LLVM
+
+Standard: c++20
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+
+AccessModifierOffset: -4
+BreakBeforeBraces: Attach
+NamespaceIndentation: None
+FixNamespaceComments: true
+
+# 指针/引用贴左： int *p; const std::string &s;
+PointerAlignment: Left
+ReferenceAlignment: Pointer
+
+# 保持手写的 include 顺序
+# （main.cpp 里 "WebAssets.h" 必须最先包含，不能被自动排序打乱）
+SortIncludes: false
+IncludeBlocks: Preserve
+
+# 短函数/短语句保持一行
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always
+
+# 参数/初始化列表
+BinPackArguments: true
+BinPackParameters: true
+AlignAfterOpenBracket: Align
+AllowAllArgumentsOnNextLine: true
+AllowAllParametersOfDeclarationOnNextLine: true
+
+SpacesBeforeTrailingComments: 2
+MaxEmptyLinesToKeep: 1
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+
+# Lambda / 模板
+LambdaBodyIndentation: OuterScope
+AlwaysBreakTemplateDeclarations: Yes
+---
+
+# 前端 JS 风格（www/*.js）
+Language: JavaScript
+BasedOnStyle: Google
+IndentWidth: 2
+ColumnLimit: 100
+JavaScriptQuotes: Single
