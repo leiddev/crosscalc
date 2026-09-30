@@ -17,7 +17,13 @@ crosscalc 前端与引擎一致性静态检查
   3. 键盘按钮插入的常量名（pi / e）必须在引擎的常量清单里；
   4. 模式名（standard/scientific/programmer）在 HTML、CSS、app.js 三处一致；
   5. 进制名（hex/dec/oct/bin）在 HTML 与 app.js 中一致；
-  6. 字长取值（8/16/32/64）在 HTML 与 app.js 中一致。
+  6. 字长取值（8/16/32/64）在 HTML 与 app.js 中一致；
+  7. app.js 里那些不依赖 DOM 的纯函数（进制重排等）用 Node 实跑一遍
+     —— 能跑就做真实验证，没装 Node 则明确报告"跳过"。
+
+前 6 项都是"照字符串比一比"，第 7 项才是真的执行代码：把二进制/八进制数字
+换算成 0x 字面量这一步算错了，界面上完全看不出来（数值会静静变成另一个数），
+所以必须拿 BigInt 这类独立实现来对照。
 
 引擎清单的来源：直接运行 crosscalc_tests --list-functions（不依赖网络与 GUI），
 也可以用 --functions-file 指定一个预先保存的清单文本。
@@ -28,6 +34,7 @@ crosscalc 前端与引擎一致性静态检查
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -280,6 +287,47 @@ def check_contracts(fail, js, verbose):
 
 
 # ---------------------------------------------------------------------- 主流程 --
+def run_js_unit_tests(fail, verbose):
+    """用 Node 跑 app.js 里纯函数的单元测试（tests/js_frontend_test.js）。
+
+    这些函数负责把用户敲的二进制/八进制数字重排成 0x 字面量。算错了不会有任何
+    报错，只会得到一个不同的数字，靠眼睛看不出来，所以值得真的执行一遍。
+
+    没装 Node 时返回 False 并说明原因 —— 这是唯一会让整体判失败的方式，
+    因为"跳过"必须显式，不能悄悄算通过（CI 里一定有 Node，所以一定会跑到）。
+    """
+    print("\n[7] app.js 纯函数单元测试（Node）")
+    node = shutil.which("node")
+    if node is None:
+        print("    x 未找到 node 可执行文件，无法运行 tests/js_frontend_test.js")
+        print("      （CI 环境自带 Node；本地请安装 Node.js 后重跑）")
+        fail.check(False, "缺少 node，无法运行 app.js 纯函数单元测试")
+        return False
+
+    script = REPO_ROOT / "tests" / "js_frontend_test.js"
+    if not script.is_file():
+        fail.check(False, f"缺少测试脚本 {script}")
+        return False
+
+    proc = subprocess.run([node, str(script)], capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    out = (proc.stdout or "").strip()
+    if verbose or proc.returncode != 0:
+        for line in out.splitlines():
+            print("    " + line)
+        if proc.stderr and proc.stderr.strip():
+            for line in proc.stderr.strip().splitlines()[:10]:
+                print("    ! " + line)
+
+    passed = proc.returncode == 0 and "ALL JS TESTS PASSED" in out
+    fail.check(passed, "app.js 纯函数单元测试未通过（node tests/js_frontend_test.js）")
+    if passed:
+        # 断言条数由脚本自己报，这里把它带进汇总行
+        m = re.search(r"(\d+) 条断言", out)
+        fail.info(f"    node: {m.group(1) if m else '?'} 条断言，全部通过", verbose)
+    return passed
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -296,7 +344,8 @@ def main():
     tests_binary = args.tests_binary
     if not tests_binary and not args.functions_file:
         for cand in ("build/Release/crosscalc_tests.exe", "build/crosscalc_tests",
-                     "build/Release/crosscalc_tests", "build/Debug/crosscalc_tests.exe"):
+                     "build/Release/crosscalc_tests", "build/Debug/crosscalc_tests.exe",
+                     "build-linux/crosscalc_tests"):
             p = REPO_ROOT / cand
             if p.is_file():
                 tests_binary = str(p)
@@ -313,10 +362,12 @@ def main():
     check_wordsizes(fail, html, js, args.verbose)
     check_contracts(fail, js, args.verbose)
 
+    ok = run_js_unit_tests(fail, args.verbose)
+
     print("\n" + "-" * 58)
     print(f"  前端一致性检查 {fail.checks} 条，失败 {fail.count} 条")
     print("-" * 58)
-    if fail.count == 0:
+    if fail.count == 0 and ok:
         print("\nALL FRONTEND CHECKS PASSED")
         return 0
     print("\nFRONTEND CHECKS FAILED")

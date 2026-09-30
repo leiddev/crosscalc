@@ -116,6 +116,68 @@
     return v < radix;
   }
 
+  /** 字长的正式叫法（程序员习惯用字节数命名，比 "32 位" 更常出现在文档里）。 */
+  const WORD_NAME = { 8: 'BYTE', 16: 'WORD', 32: 'DWORD', 64: 'QWORD' };
+
+  // ------------------------------------------------ 二进制/八进制数字输入 --
+  //
+  // 引擎能原生解析的字面量只有十进制和 0x 十六进制，没有 0b/0o。
+  // 引擎自带的 BIN2DEC() / OCT2DEC() 不能拿来当输入通道：它们最多接受 10 个
+  // 字符，且凑满 10 位时按【有符号】解释（10 位二进制、30 位八进制），
+  // 所以 BIN2DEC("1111111111") 会得到 -1 —— 见 docs/design-decisions.md 第 11 条。
+  //
+  // 因此这里把用户敲的二进制/八进制数字按位【无算术】重排成 0x 字面量：
+  //   二进制 → 每 4 位一组查表得 1 个十六进制位；
+  //   八进制 → 每位先展开成 3 个二进制位，再按 4 位一组查表。
+  // 全程只有查表与字符串拼接，没有任何算术，也没有精度损失。
+  // 进制换算的"权威实现"仍然在后端（/api/eval 的 all_bases 字段），
+  // 这里做的只是输入文本的组装。
+  const BIN_TO_HEX = {
+    '0000': '0', '0001': '1', '0010': '2', '0011': '3',
+    '0100': '4', '0101': '5', '0110': '6', '0111': '7',
+    '1000': '8', '1001': '9', '1010': 'A', '1011': 'B',
+    '1100': 'C', '1101': 'D', '1110': 'E', '1111': 'F',
+  };
+  const OCT_TO_BIN = {
+    '0': '000', '1': '001', '2': '010', '3': '011',
+    '4': '100', '5': '101', '6': '110', '7': '111',
+  };
+
+  /** 把纯数字串（二进制或八进制）重排成不带 0x 前缀的十六进制串。 */
+  function digitsToHex(digits, kind) {
+    if (!digits || digits.length === 0) return '0';
+    let bits;
+    if (kind === 'bin') {
+      bits = digits;
+    } else {
+      bits = '';
+      for (const c of digits) bits += OCT_TO_BIN[c] || '000';
+    }
+    // 从右侧对齐，左侧补 0 到 4 的倍数
+    const pad = (4 - (bits.length % 4)) % 4;
+    bits = '0'.repeat(pad) + bits;
+
+    let hex = '';
+    for (let i = 0; i < bits.length; i += 4) {
+      hex += BIN_TO_HEX[bits.slice(i, i + 4)];
+    }
+    // 去掉前导 0（至少保留一位）
+    return hex.replace(/^0+(?=.)/, '') || '0';
+  }
+
+  /** 当前字长下，某个进制最多能敲多少位数字（避免输入超出字长的位数）。
+   *
+   *  取"能被字长完整装下"的最大位数，而不是简单向上取整：
+   *  1 位八进制是 3 bit，QWORD(64) 下 22 位就是 66 bit 了，会溢出；
+   *  正确答案是 21 位（63 bit）。BYTE(8) 下同理只能 2 位（6 bit）。
+   *  bits 可显式传入，方便测试。
+   */
+  function maxDigitsForBase(kind, bits = state.wordsize) {
+    if (kind === 'bin') return bits;        // 1 位二进制 = 1 bit
+    if (kind === 'oct') return Math.floor(bits / 3);
+    return 64;                              // 十进制/十六进制交给引擎判断
+  }
+
   // ======================================================= 渲染键盘 ========
   function renderKeypads() {
     const host = $('#keypads');
@@ -172,8 +234,17 @@
     input.setSelectionRange(pos, pos);
   }
 
+  /** 光标位置。
+   *
+   *  这里用 typeof 判断而不是 `input.selectionStart ?? ...` —— ES2020 的 `??`
+   *  在较老的运行时（例如 Ubuntu 22.04 自带的 Node 12，测试脚本会加载本文件）
+   *  直接是语法错误，整个脚本都跑不起来。避免 ES2020 语法让本文件在
+   *  更老的 WebView 上也能解析，代价几乎为零。
+   */
   function caretPos() {
-    return input.selectionStart ?? input.value.length;
+    return typeof input.selectionStart === 'number'
+      ? input.selectionStart
+      : input.value.length;
   }
 
   function insertText(text) {
@@ -244,11 +315,18 @@
     scheduleEval();
   }
 
-  /** 程序员模式：数字键（含 A-F） */
+  /** 程序员模式：数字键
+   *
+   * 引擎只认十进制与 0x 十六进制字面量，所以二进制/八进制都先重排成 0x 形式。
+   * 这样做的好处是三种进制都走同一条"字面量"通道：不受 BIN2DEC/OCT2DEC
+   * 那 10 位字符上限与有符号语义的限制，64 位字长下也能精确输入。
+   */
   function literalText(kind, digits) {
     if (kind === 'hex') return '0x' + (digits || '0');
-    const fn = kind === 'bin' ? 'BIN2DEC' : 'OCT2DEC';
-    return `${fn}("${digits}")`;
+    if (kind === 'bin' || kind === 'oct') {
+      return '0x' + digitsToHex(digits, kind);
+    }
+    return digits || '0';   // 十进制原样写，引擎原生支持
   }
 
   function pushProgDigit(ch) {
@@ -263,6 +341,17 @@
 
     if (p && p.kind === kind && caretPos() === p.end) {
       // 续写当前数字
+      // 位数上限 = 当前字长能表示的位数：再敲下去高位会被字长截掉，
+      // 与其悄悄丢掉用户敲的键，不如停下来说明原因。
+      const maxDigits = maxDigitsForBase(kind);
+      if (p.digits.length >= maxDigits) {
+        flashProgHint(
+          `${WORD_NAME[state.wordsize]} 字长下 ${kind === 'bin' ? '二进制' : '八进制'}` +
+          `最多 ${maxDigits} 位数字，再输入会被字长截断。` +
+          '如需更多位数，请先切换到更大的字长。'
+        );
+        return;
+      }
       p.digits += ch;
       const text = literalText(kind, p.digits);
       input.value = input.value.slice(0, p.start) + text + input.value.slice(p.end);
@@ -418,7 +507,9 @@
 
     for (const b of Object.keys(ids)) {
       const el = $(ids[b]);
-      el.textContent = bases ? (bases[b] ?? '—') : '—';
+      // 用 typeof 判断代替 `bases[b] ?? '—'`，理由同 caretPos()：避免 ES2020 语法
+      const v = bases ? bases[b] : undefined;
+      el.textContent = typeof v === 'string' ? v : '—';
       document.querySelector(`.base-row[data-base="${b}"]`)
         .setAttribute('data-active', String(b === state.base));
     }
@@ -448,10 +539,11 @@
           '只能精确表示 2^53−1 以内的整数。请使用 BYTE / WORD / DWORD。';
       } else if (state.base === 'bin' || state.base === 'oct') {
         hint.className = 'prog-hint';
+        const maxDigits = maxDigitsForBase(state.base);
         hint.textContent =
-          '二进制/八进制没有字面量写法，数字键会自动生成 ' +
-          (state.base === 'bin' ? 'BIN2DEC("…")' : 'OCT2DEC("…")') + ' 形式；' +
-          '十六进制写作 0xFF。';
+          (state.base === 'bin' ? '二进制' : '八进制') +
+          `数字键会无损换算成 0x 十六进制字面量（引擎不认 0b/0o），` +
+          `当前 ${WORD_NAME[state.wordsize]} 字长最多输入 ${maxDigits} 位。`;
       } else {
         hint.className = 'prog-hint';
         hint.textContent = '按位与/或/异或用 BITAND/BITOR/BITXOR（注意：运算符 & | 在引擎里是逻辑运算）。';
@@ -459,9 +551,26 @@
     }
   }
 
+  /** 在程序员模式提示区临时显示一条警告，几秒后自动恢复成常规提示。
+   *
+   *  用于"按键被拒绝"这类瞬时反馈：例如已经敲满当前字长的位数时，
+   *  直接忽略按键会让人以为键盘失灵，所以要把原因写出来。
+   */
+  let progHintTimer = null;
+  function flashProgHint(msg) {
+    const hint = $('#prog-hint');
+    if (!hint) return;
+    hint.className = 'prog-hint warn';
+    hint.textContent = msg;
+    if (progHintTimer) clearTimeout(progHintTimer);
+    progHintTimer = setTimeout(() => {
+      progHintTimer = null;
+      updateBasePanel();
+    }, 4000);
+  }
+
   // ---------------------------------------------------------- 历史记录 ----
   const HISTORY_LIMIT = 60;
-
   function pushHistory(expr, result, isError) {
     const last = state.history[0];
     if (last && last.expr === expr && last.result === result) return;
@@ -623,9 +732,19 @@
             <code>asinh/acosh/atanh</code>、<code>gcd/lcm</code>，本程序也不自行实现。</li>
         <li>按位与/或/非请用 <code>BITAND</code>／<code>BITOR</code>／<code>BITXOR</code>／<code>BITNOT</code>；
             运算符 <code>&amp;</code> 与 <code>|</code> 在引擎里是<strong>逻辑</strong>运算。</li>
-        <li>二进制/八进制字面量没有语法，需用 <code>BIN2DEC()</code>／<code>OCT2DEC()</code>；十六进制写作 <code>0x</code>。</li>
+        <li>引擎没有 <code>0b</code>／<code>0o</code> 字面量。程序员模式下按二进制/八进制
+            输入时，键盘会把数字<strong>无损换算成 <code>0x</code> 字面量</strong>。</li>
+        <li>引擎自带的 <code>BIN2DEC()</code>／<code>OCT2DEC()</code>／<code>HEX2DEC()</code>
+            最多接受 10 位数字，且凑满 10 位时按<strong>有符号</strong>解释
+            （如 <code>BIN2DEC("1111111111")</code> 是 −1），不适合输入长数值；
+            请改用 <code>0x</code> 字面量。</li>
       </ul>
     `;
+  }
+
+  // 供 Node 下的单元测试使用（浏览器里没有 module，这段不会执行）。
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { digitsToHex, literalText, maxDigitsForBase };
   }
 
   document.addEventListener('DOMContentLoaded', init);
