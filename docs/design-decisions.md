@@ -448,3 +448,51 @@ curl 打到的其实是**上一个进程**，返回 404，而错误信息看起�
 进制读数是不是一种一行（四行面板是明确要求的，压成两行读数就会互相抢宽度）。
 这几个断言都验证过"改坏就报错"。
 
+---
+
+## 16. 按键灰不灰，看"按下去干什么"，不看标签
+
+程序员模式里有两个 `C`：第一行是**十六进制数字键** `C`，左下方是**清零键** `C`。
+两个键都对，但判断"这个键在当前进制下能不能用"时，只能看按下之后会插入什么：
+
+```js
+function keyDigit(key, mode) {          // 会敲出一个"受进制限制"的数字吗？
+  if (/^digit[A-F]$/.test(key.insert)) return key.insert.slice(5);       // A-F 键
+  if (mode === 'programmer' && /^[0-9]$/.test(key.insert)) return key.insert;
+  return null;                          // 清零、⌫、运算符、函数……一律不受进制影响
+}
+function keyDisabled(key, mode, base) { // buildKey 直接用它
+  const digit = keyDigit(key, mode);
+  return digit !== null && !digitAllowed(digit, base);
+}
+```
+
+### 为什么这值得单独写一节
+
+旧代码是这么写的——**按标签**查数字表：
+
+```js
+const label = key.label;                                     // 清零键的 label 是 "C"
+if (label.length === 1 && DIGIT_VALUE[label] !== undefined   // "C" 在表里 = 12
+    && !digitAllowed(label)) {                               // DEC 的进制是 10
+  btn.disabled = true;                                       // 12 >= 10 → 禁用！
+}
+```
+
+于是零点不意外地发生了：**清零键在除 HEX 以外的所有进制下都是灰的**——包括
+标准/科学模式（那两种模式 `state.base` 固定是 `dec`）。也就是说 `C` 键几乎永远
+点不动，用户只能来问"这个键是干嘛的"。
+
+教训有两层：
+
+1. **标签是给人看的，行为是给程序看的。** 只要有一个键的标签恰好长得像另一个
+   体系里的合法值，按标签做的判断就会串味。判断的输入应该是"这个键按下后会
+   产生什么"，而不是它的显示文本。
+2. **这类 bug 单点断言测不出来。** 单独断言 `digitAllowed()` 是对的（它确实对），
+   单独断言 `keyDigit({insert:'digitC'})` 也是对的——错的是两者的**接法**。
+   所以 `tests/js_frontend_test.js` 里是**整张表**过：所有模式 × 所有进制 × 所有键，
+   逐条检查"非数字键在任何进制下都不许被禁用""清零键必须点得动"。
+   把旧逻辑塞回 `keyDisabled()` 试过，测试会报出一串键名，包括标准模式下的 `8`、`9`
+   （因为 `state.base` 会跟着程序员模式留在 `oct`，同样串味）。
+
+

@@ -244,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–21。
+换成计算器后又踩到 13–22。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -388,6 +388,15 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     间距、`.display`/`.base-row` 内边距），**不该缩字号**，也不该把四行读数压回两行。
     这几条都是纯 CSS 约定、单测碰不到，所以由 `tests/check_frontend.py` 静态钉住。
     细节见[设计决策 §15](docs/design-decisions.md)。
+
+22. **按键灰不灰要看"按下去干什么"，不能看标签**：程序员模式里有两个 `C`——一个是
+    十六进制数字键，一个是清零键。旧代码按**标签**查 `0-9/A-F` 表来决定禁用，于是
+    清零键被当成数字 12，在 DEC/OCT/BIN 下一起灰掉，连标准模式都被殃及：`C` 键
+    **几乎永远点不动**，用户只能来问"这个键是干嘛的"。
+    现在改成按 `key.insert` 判断（数字键才有进制问题，清零/退格/运算符/函数一律放行），
+    并且 `keyDisabled(key, mode, base)` 是纯函数，单测能把
+    **所有模式 × 所有进制 × 所有键**整张表过一遍——这个 bug 用单点断言测不出来。
+    见[设计决策 §16](docs/design-decisions.md)。
 
 ## 如何发版
 

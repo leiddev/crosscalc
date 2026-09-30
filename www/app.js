@@ -103,16 +103,17 @@
     return { label, insert, cls: cls || '', span: span || 1 };
   }
 
-  // 程序员模式里，某个数字键在当前进制下是否可用
+  // 程序员模式里，某个数字键在某个进制下是否可用。
+  // base 显式传入而不是读 state：这样它是纯函数，单测能直接验（见 js_frontend_test.js）。
   const DIGIT_VALUE = {
     '0': 0, '1': 1, '2': 2, '3': 3, '4': 4, '5': 5, '6': 6, '7': 7,
     '8': 8, '9': 9, 'A': 10, 'B': 11, 'C': 12, 'D': 13, 'E': 14, 'F': 15,
   };
 
-  function digitAllowed(digit) {
+  function digitAllowed(digit, base) {
     const v = DIGIT_VALUE[digit];
     if (v === undefined) return true;
-    const radix = { bin: 2, oct: 8, dec: 10, hex: 16 }[state.base];
+    const radix = { bin: 2, oct: 8, dec: 10, hex: 16 }[base];
     return v < radix;
   }
 
@@ -211,6 +212,31 @@
     if (isSci) { /* 科学模式的说明在 HTML 里 */ }
   }
 
+  /** 这个键按下去会不会往表达式里敲一个"受进制限制"的数字？
+   *
+   *  只看标签是不行的——程序员模式的清零键标签恰好也是 `C`，而 `C` 又是合法的
+   *  十六进制数字。按标签查表会把清零键当成数字 12，在 DEC/OCT/BIN 下一起禁用，
+   *  结果 C 键常年灰着按不动（曾经就是这样，见 js_frontend_test.js 里那条回归）。
+   *  所以这里认的是"按下之后干什么"：十六进制数字键的 insert 是 `digitA`..`digitF`，
+   *  普通数字键的 insert 就是它自己；其余键（清零、⌫、运算符、函数）一律不参与
+   *  进制检查。mode 同样显式传入，方便单测。
+   */
+  function keyDigit(key, mode) {
+    if (/^digit[A-F]$/.test(key.insert)) return key.insert.slice(5);
+    if (mode === 'programmer' && /^[0-9]$/.test(key.insert)) return key.insert;
+    return null;
+  }
+
+  /** 这个键在某个模式 + 某个进制下该不该置灰？
+   *
+   *  单拆成纯函数是为了能整张表地测：C 键那个 bug 用"某一个键"的单点断言是测不出来的，
+   *  得把所有模式 × 所有进制 × 所有键过一遍（见 tests/js_frontend_test.js）。
+   */
+  function keyDisabled(key, mode, base) {
+    const digit = keyDigit(key, mode);
+    return digit !== null && !digitAllowed(digit, base);
+  }
+
   function buildKey(key) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -218,11 +244,8 @@
     btn.textContent = key.label;
     if (key.span > 1) btn.style.flexGrow = String(key.span);
 
-    // 禁用当前进制下非法的数字键
-    const label = key.label;
-    if (label.length === 1 && DIGIT_VALUE[label] !== undefined && !digitAllowed(label)) {
-      btn.disabled = true;
-    }
+    // 禁用当前进制下敲不出来的数字键（比如 DEC 下的 A-F）
+    btn.disabled = keyDisabled(key, state.mode, state.base);
 
     btn.addEventListener('click', () => onKey(key));
     return btn;
@@ -796,7 +819,12 @@
 
   // 供 Node 下的单元测试使用（浏览器里没有 module，这段不会执行）。
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { digitsToHex, literalText, maxDigitsForBase, errorIsPending, caretWindow };
+    module.exports = {
+      digitsToHex, literalText, maxDigitsForBase, errorIsPending, caretWindow,
+      // 按键表的进制可用性：纯函数 + 表本身，方便单测把"每个键在每种模式下
+      // 会不会被禁用"整张表过一遍（C 键那个 bug 就是整张表才能发现的）。
+      digitAllowed, keyDigit, keyDisabled, KEYPADS,
+    };
   }
 
   document.addEventListener('DOMContentLoaded', init);
