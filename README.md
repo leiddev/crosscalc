@@ -244,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–25。
+换成计算器后又踩到 13–26。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -429,6 +429,16 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     记住这条高度账：`.calc ≈ 窗口高 − 83`；程序员模式下限 631~633，
     所以窗口高不能低于 **≈714**；宽度低于 **≈901** 会切成单列布局（`.side` 压到 180px）。
     初始尺寸定为 1024×720。见[设计决策 §19](docs/design-decisions.md)。
+
+26. **"此刻的事实"别烤进 HTML，否则会冻在启动那一刻**：「关于」里的「运行时长」一直显示
+    **0 秒**——后端是对的（隔 6 秒问两次 `/api/info`：2119ms → 8163ms），是前端只在
+    `init()` 里取了一次就 `renderAbout(info)` 烤进 `#about-body`，而「关于」按钮只做
+    `showModal()`。页面加载只比进程启动晚几百毫秒，`Math.round(0.3)` 就是 0，之后再也不会变。
+    现在抽了个 `refreshAbout()`，`init()` 和**每次打开对话框**都调；同时 `reply_json()`
+    统一加 `Cache-Control: no-store`（否则"重新取一次"可能拿到浏览器缓存）。
+    两层测试钉住：`check_frontend.py` 静态查"打开关于 = showModal + refreshAbout"，
+    `e2e_api.py` 行为查"uptime_ms 隔 1.2 秒至少涨 1000 + 带 no-store"。
+    见[设计决策 §20](docs/design-decisions.md)。
 
 ## 如何发版
 

@@ -688,11 +688,7 @@
       state.platform = await callJson('/api/platform');
     } catch (_) { /* 保持默认值 */ }
 
-    try {
-      const info = await callJson('/api/info');
-      $('#app-version').textContent = 'v' + info.version;
-      renderAbout(info);
-    } catch (_) { /* 忽略 */ }
+    await refreshAbout();
 
     for (const tab of document.querySelectorAll('.mode-tab')) {
       tab.addEventListener('click', () => setMode(tab.dataset.mode));
@@ -741,7 +737,12 @@
         $('#functions-text').textContent = '加载失败：' + err;
       }
     });
-    $('#btn-about').addEventListener('click', () => $('#dlg-about').showModal());
+    // "关于"里的运行时长是页面启动那一刻的快照（init 里取的），
+    // 放着不管就会一直显示"0 秒"。所以每次打开对话框都重取一次再渲染。
+    $('#btn-about').addEventListener('click', () => {
+      $('#dlg-about').showModal();
+      refreshAbout();
+    });
 
     // ---- 输入框事件 ----
     input.addEventListener('input', () => { state.pending = null; scheduleEval(); });
@@ -770,6 +771,17 @@
       ev.preventDefault();
       clearAll();
     }
+  }
+
+  // 取一次 /api/info 并把版本号与"关于"内容渲染出来。
+  // init() 调一次，每次打开"关于"对话框再调一次——因为里面的"运行时长"
+  // 是活的数字，只在启动时渲染的话会永远停在"0 秒"。
+  async function refreshAbout() {
+    try {
+      const info = await callJson('/api/info');
+      $('#app-version').textContent = 'v' + info.version;
+      renderAbout(info);
+    } catch (_) { /* 取不到就沿用上一次的内容 */ }
   }
 
   function renderAbout(info) {

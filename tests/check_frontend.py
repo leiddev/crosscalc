@@ -485,6 +485,33 @@ def check_key_labels(fail, js, verbose):
     fail.info("按键标签约束检查完成（非数字键不得使用单个 0-9/A-F 标签）", verbose)
 
 
+def check_about_uptime(fail, js, verbose):
+    """"关于"里的运行时长必须是活的：每次打开对话框都重取 /api/info。
+
+    这个数字来自 /api/info 的 uptime_ms，是"此刻的进程运行时长"。
+    原来只在 init() 里取一次就把字符串烤进 #about-body，而页面加载只比进程启动
+    晚几百毫秒 → Math.round(0.3) = 0 → 对话框永远显示"运行时长 0 秒"，
+    开十分钟再看也还是 0。现在 #btn-about 的点击会先 showModal() 再 refreshAbout()。
+
+    HTML/JS 的交互约定单测碰不到，所以静态钉住"打开关于 = 展示 + 重取"这个组合。
+    """
+    fail.check(re.search(r"async function refreshAbout\s*\(", js) is not None,
+               "app.js 里应当有 refreshAbout()：取 /api/info 并渲染版本号与\"关于\"内容")
+
+    handler = re.search(r"\$\('#btn-about'\)\s*\.addEventListener\(\s*'click'\s*,\s*\(\)\s*=>\s*\{(.*?)\}\s*\)",
+                        js, re.S)
+    fail.check(handler is not None, "app.js 里找不到 #btn-about 的 click 处理")
+    if handler:
+        body = handler.group(1)
+        fail.check("showModal" in body, "#btn-about 的点击处理里要打开对话框（showModal）")
+        fail.check("refreshAbout" in body,
+                   "#btn-about 的点击处理里还要调用 refreshAbout()："
+                   "只在启动时渲染一次的话，\"运行时长\"会永远停在 0 秒")
+
+    # 后端那边要有对应的新鲜度保证（这条是 C++ 侧，见 tests/e2e_api.py 的行为断言）
+    fail.info("关于对话框的运行时长检查完成（打开时重取 /api/info）", verbose)
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -520,6 +547,7 @@ def main():
     check_contracts(fail, js, args.verbose)
     check_layout_anchors(fail, html, js, css, args.verbose)
     check_key_labels(fail, js, args.verbose)
+    check_about_uptime(fail, js, args.verbose)
 
     ok = run_js_unit_tests(fail, args.verbose)
 

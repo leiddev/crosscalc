@@ -157,6 +157,9 @@ long current_process_id() {
 
 void reply_json(httplib::Response& res, const json& body, int status = 200) {
     res.status = status;
+    // 所有 API 回复都是"此刻的事实"（/api/info 里的运行时长就是活的），
+    // 一律不许缓存：否则前端"重新取一次"可能拿到浏览器缓存里的旧值。
+    res.set_header("Cache-Control", "no-store");
     res.set_content(json_text(body), "application/json; charset=utf-8");
 }
 

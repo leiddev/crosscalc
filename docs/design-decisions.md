@@ -625,5 +625,55 @@ CSS 却没人加类，规则是死的。
 > 先确认量的是视口；顺手把 `devicePixelRatio` 也报出来，免得缩放把结论带偏。
 > 改窗口尺寸后别忘了按 §16 重新编译（`set_size` 在 C++ 里，不是 www 里）。
 
+## 20.「关于」里的运行时长：打开对话框时才取
+
+**现象**：不管开了多久，「关于」里永远是「运行时长 **0 秒**」。
+
+**不是后端算错**。`/api/info` 的 `uptime_ms` 是准的，隔 6 秒问两次：
+
+```
+第 1 次: uptime_ms = 2119
+第 2 次: uptime_ms = 8163     ← 活的
+```
+
+**是前端只问了一次**。原来 `init()` 里取完 `/api/info` 就当场把它渲染成 HTML：
+
+```js
+const info = await callJson('/api/info');
+renderAbout(info);            // → "运行时长 ${Math.round(info.uptime_ms/1000)} 秒" 直接烤进 #about-body
+$('#btn-about').addEventListener('click', () => $('#dlg-about').showModal());  // 只负责打开
+```
+
+而启动时序是"先起进程、再起 webview、再加载页面"，中间只差几百毫秒，所以抓到的
+是 ≈300ms，`Math.round(0.3)` = **0 秒**——这个字符串之后再也不会变。开十分钟再点
+「关于」，还是 0 秒。
+
+**改法**（两头都要动）：
+
+1. 把取数+渲染抽成 `refreshAbout()`，`init()` 调一次，**`#btn-about` 的点击再调一次**：
+
+   ```js
+   $('#btn-about').addEventListener('click', () => {
+     $('#dlg-about').showModal();   // 先开，感觉上是瞬间的
+     refreshAbout();                // 再把"此刻的事实"刷新进来
+   });
+   ```
+
+2. `reply_json()` 加上 `Cache-Control: no-store`。所有 API 回复都是"此刻的事实"，
+   不设的话浏览器有可能拿缓存回复，前端"重新取一次"就白取了。
+
+**测试**：HTML/JS 的交互约定单测碰不到，所以分两层钉住——
+
+* `tests/check_frontend.py` 的 `check_about_uptime()`（静态）：`#btn-about` 的处理里
+  必须**同时**有 `showModal` 和 `refreshAbout`，且 `refreshAbout` 存在。
+  （验证过：把处理改回裸 `showModal()` 就会报错。）
+* `tests/e2e_api.py`（行为）：隔 1.2 秒问两次 `/api/info`，`uptime_ms` 至少涨 1000；
+  并且响应头要带 `no-store`。
+* 另外用代理记录 `/api/*` 请求，确认点「关于」**真的又发了一次** `GET /api/info`。
+
+> 教训：**"此刻的事实"不要烤进 HTML。** 运行时长、状态、计数这类值，要么在打开时
+> 重新取，要么在写进 DOM 之前现算；只在启动时渲染一次的写法，一定会冻在启动那一刻。
+
+
 
 

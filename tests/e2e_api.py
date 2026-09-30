@@ -232,6 +232,28 @@ def run_api_checks(fail, port, verbose):
         if verbose:
             print(f"    /api/info -> {json.dumps(info, ensure_ascii=False)[:160]}…")
 
+        # 运行时长必须是"活的"：隔一会儿再问一次，uptime_ms 要跟着涨。
+        # "关于"对话框每次打开都会重取这个接口，所以接口本身要新鲜、也不能被缓存
+        # （否则前端重新取也只会拿到浏览器缓存里的旧值）。
+        first = info.get("uptime_ms")
+        fail.check(isinstance(first, (int, float)) and first > 0,
+                   f"/api/info 的 uptime_ms 应当是正数，实际 {first!r}")
+        time.sleep(1.2)
+        status2, info2 = http_json(base + "/api/info")
+        fail.check(status2 == 200, f"/api/info 第二次状态应为 200，实际 {status2}")
+        second = (info2 or {}).get("uptime_ms")
+        fail.check(isinstance(second, (int, float)) and isinstance(first, (int, float))
+                   and second - first >= 1000,
+                   f"/api/info 的 uptime_ms 要是活的（隔 1.2 秒应至少涨 1000），"
+                   f"实际 {first!r} -> {second!r}")
+        if verbose:
+            print(f"    /api/info uptime_ms {first} -> {second}（涨了 {second - first}）")
+
+    with urllib.request.urlopen(base + "/api/info", timeout=15) as resp:
+        cache_control = resp.headers.get("Cache-Control", "")
+    fail.check("no-store" in cache_control,
+               f"/api/info 应带 Cache-Control: no-store，实际 {cache_control!r}")
+
     status, platform = http_json(base + "/api/platform")
     fail.check(status == 200, f"/api/platform 状态应为 200，实际 {status}")
     fail.check(isinstance(platform, dict) and "supports_64bit" in platform,
