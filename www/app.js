@@ -584,14 +584,12 @@
         : '本平台的计算引擎基于 double，只能精确表示 2^53−1 以内的整数，因此不支持 QWORD';
     }
 
+    // QWORD 在当前平台上是否可用。不可用时只把按钮置灰 + 挂个 title 说明原因，
+    // 不在提示区常驻一条警告：那是平台的先天限制，用户改不了，天天挂着只会
+    // 占着最显眼的一行喊"你少个功能"。（title 见上）
     const hint = $('#prog-hint');
     if (hint) {
-      if (!QWORD_OK()) {
-        hint.className = 'prog-hint warn';
-        // 文案压在一行内：提示区高度是写死的（见 style.css），换行会被裁掉
-        hint.textContent =
-          '本平台引擎是 double，不支持 QWORD：只能精确表示 2^53−1 以内的整数，请用 BYTE/WORD/DWORD。';
-      } else if (state.base === 'bin' || state.base === 'oct') {
+      if (state.base === 'bin' || state.base === 'oct') {
         hint.className = 'prog-hint';
         const maxDigits = maxDigitsForBase(state.base);
         hint.textContent =

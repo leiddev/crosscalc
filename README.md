@@ -383,6 +383,9 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     所以 `app.js` 的 `caretWindow()` 只截一小段（两头 `…`）。
     另外 `.keypads` 是 `flex: 1 0 auto`——窗口矮下去时宁可让 `.calc` 出滚动条，
     也不能让 flex 把键盘压成 0 高（程序员模式 6 行最先撞上）。
+    程序员模式的高度是三种东西抢出来的：6 行键盘、**四行**进制读数（一种进制一行，
+    读数之间不抢宽度）、默认 1180×820 的窗口。挤不下时该从空白里省（`.calc`/`.keypads`
+    间距、`.display`/`.base-row` 内边距），**不该缩字号**，也不该把四行读数压回两行。
     这几条都是纯 CSS 约定、单测碰不到，所以由 `tests/check_frontend.py` 静态钉住。
     细节见[设计决策 §15](docs/design-decisions.md)。
 

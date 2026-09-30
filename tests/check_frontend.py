@@ -359,7 +359,30 @@ def check_layout_anchors(fail, html, js, css, verbose):
     fail.check(rows is not None and "min-height" in rows,
                ".kp-row 需要 min-height：行高被压扁后按键上的字符就看不清了")
 
-    fail.info("布局约定检查完成（错误区固定高度 + 键盘不被压缩）", verbose)
+    # 进制读数一种一行（hex / dec / oct / bin 各占一行）。
+    # 曾经为了省 50px 高度把它们压成两行（hex/dec/oct 并排），结果四种读数互相
+    # 抢宽度——bin 的 32 位串被挤得要左右滚。空间该从空白里省，不该从读数里省。
+    base_list = css_rule(css, ".base-list")
+    fail.check(base_list is not None, "style.css 缺少 .base-list 规则")
+    if base_list:
+        cols = re.search(r"grid-template-columns\s*:\s*([^;]+)", base_list)
+        fail.check(cols is None or "repeat" not in cols.group(1),
+                   f".base-list 不该再排成多列（现在是 {cols.group(1).strip() if cols else '?'}）："
+                   "四种进制的读数要各占一行，否则位数长的读数会被挤得左右滚")
+    fail.check(re.search(r'\.base-row\[data-base="bin"\]\s*\{[^}]*grid-column', css) is None,
+               "不该再有 .base-row[data-base=bin] 的 grid-column 跨列规则："
+               "那是两行时代的补丁，四行面板里没有意义")
+
+    # 提示区不常驻"平台不支持 QWORD"之类的坏消息：用户改不了，天天挂着只会
+    # 让人以为哪里坏了。QWORD 按钮该灰还是灰、原因挂在它的 title 上就够了。
+    # 这里认的是当初那条常驻提示的原话（标题里的说明不算，那是悬停才看的）。
+    stale = [s for s in ("本平台引擎是 double", "请用 BYTE/WORD/DWORD", "不支持 QWORD：")
+             if s in js]
+    fail.check(not stale,
+               f"app.js 里又出现了常驻的平台限制提示 {stale}："
+               "这类消息不该占着提示区（放按钮 title、把按钮置灰就够）")
+
+    fail.info("布局约定检查完成（错误区固定高度 + 键盘不被压缩 + 四行进制读数）", verbose)
 
 
 # ---------------------------------------------------------------------- 主流程 --
