@@ -244,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–24。
+换成计算器后又踩到 13–25。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -384,7 +384,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     另外 `.keypads` 是 `flex: 1 0 auto`——窗口矮下去时宁可让 `.calc` 出滚动条，
     也不能让 flex 把键盘压成 0 高（程序员模式 6 行最先撞上）。
     程序员模式的高度是三种东西抢出来的：6 行键盘、**四行**进制读数（一种进制一行，
-    读数之间不抢宽度）、默认 1180×820 的窗口。挤不下时该从空白里省（`.calc`/`.keypads`
+    读数之间不抢宽度）、默认 1024×720 的窗口。挤不下时该从空白里省（`.calc`/`.keypads`
     间距、`.display`/`.base-row` 内边距），**不该缩字号**，也不该把四行读数压回两行。
     这几条都是纯 CSS 约定、单测碰不到，所以由 `tests/check_frontend.py` 静态钉住。
     细节见[设计决策 §15](docs/design-decisions.md)。
@@ -418,6 +418,17 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     `.kp-row.sci-split { gap: 14px }` 留更宽的缝（这个类要 `renderKeypads()` 主动加上，
     光写 CSS 不加类等于没有）。`check_frontend.py` 钉住"`.kp-group` 必须是 row"。
     见[设计决策 §18](docs/design-decisions.md)。
+
+25. **"窗口大小"和"页面视口"是两个数，量布局别量错**：`src/main.cpp` 里的
+    `w.set_size(1024, 720, ...)` 给的是**页面视口（客户区）**，不是含边框的窗口尺寸
+    （实测窗口 1038×757，边框 14×37）。用 headless Edge 量这个 app 时 `--window-size`
+    要传"视口 + 32/96"，否则凭空少 96px 高——我第一轮就差点因此把结论搞反：
+    按 `--window-size=1024,720` 量出 `.calc` 只有 540px、断言"程序员模式肯定要滚动"，
+    换成真实视口再量是 638px、**三种模式全都装得下**。另外这台机器 `devicePixelRatio`
+    是 **1.75**（175% 缩放），量的时候要 `--force-device-scale-factor=1.75` 才对得上。
+    记住这条高度账：`.calc ≈ 窗口高 − 83`；程序员模式下限 631~633，
+    所以窗口高不能低于 **≈714**；宽度低于 **≈901** 会切成单列布局（`.side` 压到 180px）。
+    初始尺寸定为 1024×720。见[设计决策 §19](docs/design-decisions.md)。
 
 ## 如何发版
 

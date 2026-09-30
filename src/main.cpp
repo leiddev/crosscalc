@@ -545,8 +545,15 @@ int main(int argc, char** argv) {
         g_webview = &w;
 
         w.set_title("crosscalc —— 计算器（标准 / 科学 / 程序员）");
-        w.set_size(1180, 820, WEBVIEW_HINT_NONE);
-        // 允许窗口放得很小，但不要让布局塌掉
+        // 初始尺寸刻意开小一点，别一上来就占满屏。
+        // 这个高度是有下限的：set_size 给的宽高就是页面的视口（客户区），
+        // 程序员模式的内容下限是 631px（四行进制面板 + 6 行 40px 的键盘），
+        // 而 .calc 拿到的高度 ≈ 窗口高 − 83，所以窗口高至少要 714px，
+        // 再矮程序员模式就会在 .calc 里长出滚动条（键会被裁）。
+        // 1024x720 比下限高 7px：三种模式都刚好铺满、零裁切。
+        // 详细账见 docs/design-decisions.md §15 / §19。
+        w.set_size(1024, 720, WEBVIEW_HINT_NONE);
+        // 允许窗口放得很小（视口低于约 900 宽会切成"记录区放下面"的单列布局）
         w.set_size(760, 560, WEBVIEW_HINT_MIN);
 
         // JS → C++ 的绑定
