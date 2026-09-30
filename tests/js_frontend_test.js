@@ -131,6 +131,29 @@ ok(digitsToHex('7'.repeat(maxDigitsForBase('oct', 64)), 'oct').length <= 16,
 ok(digitsToHex('7'.repeat(maxDigitsForBase('oct', 8)), 'oct').length <= 2,
    'BYTE 八进制上限对应的十六进制不超过 2 位');
 
+// ---------------------------------------------------- 错误提示的时机 --
+// 输入框每变一次就会求值一次，"2+"、"sin(" 这类敲到一半的表达式必然失败。
+// 后端给这种失败打上 incomplete 标记，前端实时预览时必须把它压住，
+// 只有按下等号/回车（commit）才允许弹红框 —— 否则打字过程会一直闪错误。
+const { errorIsPending } = app;
+
+ok(errorIsPending({ ok: false, incomplete: true }, undefined),
+   '实时预览应压住"还没输完"的错误');
+ok(errorIsPending({ ok: false, incomplete: true }, {}),
+   '未指定 commit 时同样压住');
+ok(errorIsPending({ ok: false, incomplete: true }, { commit: false }),
+   '显式 commit:false 时压住');
+ok(!errorIsPending({ ok: false, incomplete: true }, { commit: true }),
+   '按下等号/回车时必须照实报错');
+ok(!errorIsPending({ ok: false, incomplete: false }, undefined),
+   '真正的输入错误（后端没打标记）立刻报');
+ok(!errorIsPending({ ok: false }, undefined),
+   '响应里没有该字段时按"真错误"处理');
+ok(!errorIsPending({ ok: true, incomplete: false }, undefined),
+   '成功的结果不压');
+ok(!errorIsPending(null, undefined), '空响应不能抛异常');
+ok(!errorIsPending(undefined, { commit: true }), '空响应 + commit 不能抛异常');
+
 // ------------------------------------------------------------------ 汇总 --
 console.log(`JS 前端纯函数：${checks} 条断言（其中 ${bigintChecks} 条与 BigInt 对照）`);
 if (failures.length > 0) {

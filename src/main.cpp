@@ -258,6 +258,7 @@ json result_to_json(const crosscalc::EvalRequest& req,
         out["error"] = nullptr;
         out["error_pos"] = -1;
         out["error_len"] = 0;
+        out["incomplete"] = false;
         // 程序员模式额外给出四种进制的显示，供前端的进制面板使用
         if (req.mode == crosscalc::Mode::Programmer) {
             out["all_bases"] = all_bases_json(req);
@@ -269,6 +270,8 @@ json result_to_json(const crosscalc::EvalRequest& req,
         out["error"] = r.error;
         out["error_pos"] = r.error_pos;
         out["error_len"] = r.error_len;
+        // true 表示这只是"表达式还没输完"，前端实时预览时先不要弹错误
+        out["incomplete"] = r.incomplete;
     }
     return out;
 }

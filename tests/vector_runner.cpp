@@ -193,6 +193,14 @@ int run_vector_files(const std::vector<std::string>& files) {
                 }
             }
 
+            // "还没输完"标记：前端实时预览据此决定要不要立刻弹错误
+            if (c.contains("expect_incomplete")) {
+                const bool want = c["expect_incomplete"].get<bool>();
+                xtest::check_eq(r.incomplete, want,
+                                (label + " 是否还没输完").c_str(),
+                                xtest::to_str(want).c_str(), __FILE__, __LINE__);
+            }
+
             if (xtest::g_failures == before) {
                 std::printf("  [通过] %s\n", label.c_str());
             }

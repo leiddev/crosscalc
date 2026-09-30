@@ -86,6 +86,8 @@ EvalResult Engine::evaluate(const EvalRequest& req) const {
     const std::string_view trimmed = trim_view(req.expression);
     if (trimmed.empty()) {
         out.error = "请输入要计算的表达式。";
+        // 空白输入只是"还没开始输"，不算用户出错
+        out.incomplete = true;
         return out;
     }
     std::string expr(trimmed);
@@ -135,7 +137,11 @@ EvalResult Engine::evaluate(const EvalRequest& req) const {
         const int pos = safe_error_position(parser);
         out.ok = false;
         out.error_pos = pos;
-        out.error = friendly_syntax_error(parser.get_last_error_message(), pos, expr);
+        const SyntaxDiagnosis diag =
+            diagnose_syntax_error(parser.get_last_error_message(), pos, expr);
+        out.error = diag.text;
+        // 敲到一半的表达式（"2+"、"sin("）也走这条路：标记出来让前端先别报错
+        out.incomplete = diag.incomplete;
 
         int start = -1;
         int len = 0;

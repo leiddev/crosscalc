@@ -208,7 +208,7 @@ bash tests/smoke_gui.sh build-linux/crosscalc
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/`、`/style.css`、`/app.js` | 内嵌前端资源（MIME 自动识别） |
-| POST | `/api/eval` | **求值主接口**，body 是 JSON：`{"expr":"...","mode":"programmer","base":"hex","wordsize":"32"}` |
+| POST | `/api/eval` | **求值主接口**，body 是 JSON：`{"expression":"...","mode":"programmer","base":"hex","wordsize":"32"}` |
 | GET | `/api/eval?expr=..&mode=..&base=..&wordsize=..` | 同上，便于命令行调试 |
 | GET | `/api/info` | 各库版本（tinyexpr-plusplus / cpp-httplib / webview / cpp-embedlib / nlohmann-json）、OS、PID、运行时长 |
 | GET | `/api/platform` | `supports_64bit`、`max_integer_bitness`、`max_bitops_value` —— 前端据此禁用 QWORD 按钮 |
@@ -219,13 +219,23 @@ bash tests/smoke_gui.sh build-linux/crosscalc
 `/api/eval` 的返回里，程序员模式会额外带一个 **`all_bases`** 字段（hex/dec/oct/bin 四种显示），
 这样进制换算只有后端一份实现，前端不做任何位运算。
 
+失败时还会带一个 **`incomplete`** 字段：`true` 表示这次失败只是"表达式还没输完"
+（`2+`、`sin(`、手打 `sqrt` 打到一半……），不是用户写错了。
+前端实时预览时据此把错误先按住（结果区显示灰色的 `—`），只在按下等号/回车时才弹红框—— 
+否则每敲一个键都会闪一次错误。判定规则见 [设计决策 §14](docs/design-decisions.md)。
+
 JS → C++ 绑定：`cppEvaluate(requestJson)`、`cppCloseWindow()`。界面优先走
 `cppEvaluate`（同进程、无 HTTP 往返），不可用时自动回退到 `POST /api/eval`。
 
 ```console
 $ curl -s "http://127.0.0.1:18080/api/eval?expr=255&mode=programmer&base=hex"
-{"ok":true,"display":"FF","value":255.0,"integral":true,
+{"ok":true,"mode":"programmer","base":"hex","wordsize":32,"expression":"255","display":"FF",
+ "value":255.0,"integral":true,"error":null,"error_pos":-1,"error_len":0,"incomplete":false,
  "all_bases":{"hex":"FF","dec":"255","oct":"377","bin":"1111 1111"}}
+
+$ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
+{"ok":false,...,"error":"表达式不完整：运算符 '+' 后面缺少操作数（位置 2）。",
+ "error_pos":1,"error_len":1,"incomplete":true}   # 还在输入，前端先不弹错误
 ```
 
 ## 需要注意的几个坑（都实测踩过）
@@ -352,6 +362,15 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=255&mode=programmer&base=hex"
       输出要重定向到临时文件。
     - **app.js 刻意避开 ES2020 语法**（`??`、`?.`）：Ubuntu 22.04 自带的 Node 12
       加载它跑单元测试时会直接语法报错，而 `??` 换掉的代价几乎为零。
+
+20. **实时求值意味着"敲到一半"也必须能被识别**：输入框每变一次就求值一次（90 ms 防抖），
+    于是 `2+`、`sin(`、手打 `sqrt` 打到 `sq` 的**每一拍都是失败**。
+    把这些失败按错误显示出来，用户打字全程都在看红框——那不是提示，是噪音。
+    解决办法不是让前端去猜，而是后端在 `EvalResult` 上给一个 **`incomplete` 标记**
+    （由 `diagnose_syntax_error()` 判定，见 `src/core/error_text.cpp`），
+    前端实时预览时先把这些错误按住，只在按下等号/回车时才弹。
+    什么算"没输完"、什么算"写错了"，以及"数字开头的 token 不享受这个待遇"这类边界，
+    都写在[设计决策 §14](docs/design-decisions.md) 里。
 
 ## 如何发版
 

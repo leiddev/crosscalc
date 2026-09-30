@@ -410,12 +410,23 @@
     evalTimer = setTimeout(() => evaluateNow(), 90);
   }
 
+  /** 这条错误现在就该给用户看吗？
+   *
+   *  输入框每变一次就会求值一次，而 "2+"、"sin("、"((1+2)" 这类敲到一半的表达式
+   *  必然求值失败。后端会给这种失败打上 incomplete 标记：实时预览时先按住不表，
+   *  只在用户按下等号/回车（commit）时才把错误摆出来。
+   *  真正写错的表达式（"2+*3"、"1/0"）没有这个标记，照旧立刻报错。
+   */
+  function errorIsPending(data, opts) {
+    return !!(data && data.incomplete) && !(opts && opts.commit);
+  }
+
   async function evaluateNow(opts) {
     const expr = input.value;
     const seq = ++evalSeq;
 
     if (expr.trim() === '') {
-      showResult('0', '', false);
+      showResult('0', '', '');
       hideError();
       updateBasePanel(null);
       return;
@@ -430,7 +441,7 @@
         wordsize: String(state.wordsize),
       });
     } catch (err) {
-      showResult('无法求值', '后端连接失败', true);
+      showResult('无法求值', '后端连接失败', 'error');
       showError('与计算后端的连接失败：' + (err && err.message ? err.message : err), null, null, expr);
       return;
     }
@@ -438,14 +449,19 @@
     if (seq !== evalSeq) return; // 已经有更新的请求了，丢弃这个结果
 
     if (data.ok) {
-      showResult(data.display, noteFor(data), false);
+      showResult(data.display, noteFor(data), '');
       hideError();
       updateBasePanel(data);
       if (opts && opts.commit) {
         pushHistory(expr, data.display, false);
       }
+    } else if (errorIsPending(data, opts)) {
+      // 还差一点：只在结果区留一句淡提示，不弹红框、不进历史
+      showResult('—', '表达式还没输完，继续输入…', 'stale');
+      hideError();
+      updateBasePanel(null);
     } else {
-      showResult('—', '', true);
+      showResult('—', '', 'error');
       showError(data.error, data.error_pos, data.error_len, expr);
       updateBasePanel(null);
       if (opts && opts.commit) {
@@ -463,9 +479,11 @@
     return bits.join(' · ');
   }
 
-  function showResult(text, note, isError) {
+  // kind：'' 正常结果 | 'error' 出错（红） | 'stale' 暂时没有有效结果（灰）
+  function showResult(text, note, kind) {
     resultEl.textContent = text;
-    resultEl.classList.toggle('is-error', !!isError);
+    resultEl.classList.toggle('is-error', kind === 'error');
+    resultEl.classList.toggle('is-stale', kind === 'stale');
     noteEl.textContent = note || '';
   }
 
@@ -686,7 +704,7 @@
     renderKeypads();
     updateBasePanel(null);
     if (!hasBind) {
-      showResult('0', '（浏览器直连模式：未检测到 webview 绑定）', false);
+      showResult('0', '（浏览器直连模式：未检测到 webview 绑定）', '');
     }
   }
 
@@ -744,7 +762,7 @@
 
   // 供 Node 下的单元测试使用（浏览器里没有 module，这段不会执行）。
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { digitsToHex, literalText, maxDigitsForBase };
+    module.exports = { digitsToHex, literalText, maxDigitsForBase, errorIsPending };
   }
 
   document.addEventListener('DOMContentLoaded', init);

@@ -62,6 +62,12 @@ bool is_ident_char(char c) {
            c == '.';
 }
 
+/// 是不是"名字"（函数名/常量名）的开头？数字开头的一律当成数字字面量。
+/// 用来区分"手敲 sqrt 打了半截"和"1.2.3 这种数字写错了"。
+bool is_name_head(char c) {
+    return std::isalpha(static_cast<unsigned char>(c)) != 0 || c == '_';
+}
+
 std::string quote_token(std::string_view t) {
     return "'" + std::string(t) + "'";
 }
@@ -292,13 +298,14 @@ std::string friendly_calc_error(std::string_view lib_message, Mode mode) {
     return "计算失败：" + std::string(m);
 }
 
-std::string friendly_syntax_error(std::string_view lib_message, int pos,
-                                  std::string_view expr) {
+SyntaxDiagnosis diagnose_syntax_error(std::string_view lib_message, int pos,
+                                      std::string_view expr) {
     const std::string_view m = trim_view(lib_message);
 
-    // 库偶尔会给出有效消息（例如 64 位按位运算、内部错误），优先翻译它
+    // 库偶尔会给出有效消息（例如 64 位按位运算、内部错误），优先翻译它。
+    // 库既然开口了，就说明它认得出这是个正经错误，不是"还没输完"。
     if (!m.empty()) {
-        return friendly_calc_error(m, Mode::Standard);
+        return {friendly_calc_error(m, Mode::Standard), false};
     }
 
     const int len = static_cast<int>(expr.size());
@@ -308,22 +315,25 @@ std::string friendly_syntax_error(std::string_view lib_message, int pos,
     int extra_close = 0;
     if (paren_imbalance(expr, missing_close, extra_close)) {
         if (extra_close > 0) {
-            return "右括号 ')' 多余，请检查括号是否配对。";
+            return {"右括号 ')' 多余，请检查括号是否配对。", false};
         }
-        return "缺少 " + std::to_string(missing_close) + " 个右括号 ')'。";
+        // 右括号少几个，几乎总是"还没敲到那里"
+        return {"缺少 " + std::to_string(missing_close) + " 个右括号 ')'。",
+                true};
     }
 
     // 2) 没有位置信息
     if (pos < 0) {
-        return "表达式无法解析，请检查输入。";
+        return {"表达式无法解析，请检查输入。", false};
     }
 
     const int human_pos = pos + 1;  // 给用户看的位置从 1 开始数
 
     // 3) 位置落在末尾之后 -> 表达式被截断了
     if (pos >= len) {
-        return "表达式不完整：末尾缺少操作数或右括号（位置 " +
-               std::to_string(human_pos) + "）。";
+        return {"表达式不完整：末尾缺少操作数或右括号（位置 " +
+                    std::to_string(human_pos) + "）。",
+                true};
     }
 
     // 4) 尝试取出出错 token
@@ -340,24 +350,36 @@ std::string friendly_syntax_error(std::string_view lib_message, int pos,
         const bool looks_like_call =
             after < expr.size() && expr[after] == '(';
         if (looks_like_call) {
-            return "未知的函数：" + quote_token(tok) +
-                   "（位置 " + std::to_string(human_pos) + "）。\n"
-                   "请检查函数名拼写，或确认它属于当前计算器模式。";
+            return {"未知的函数：" + quote_token(tok) +
+                        "（位置 " + std::to_string(human_pos) + "）。\n"
+                        "请检查函数名拼写，或确认它属于当前计算器模式。",
+                    false};
         }
-        return "未知的符号：" + quote_token(tok) +
-               "（位置 " + std::to_string(human_pos) + "）。\n"
-               "本计算器不支持变量，请检查拼写或改用库内建的常量（如 PI、E）。";
+        // 出错 token 一直顶到表达式末尾，而且是以字母开头的名字，说明用户可能
+        // 正一个字母一个字母地敲函数名（"s"、"sq"、"sqr"、"sqrt"），此刻还看不出
+        // 他到底要写什么，所以按"还没输完"处理，等按下等号/回车再判错。
+        // 数字开头的 token（"1.2.3"、"0b1010"）不算：那一眼就是写错了。
+        const bool name_being_typed =
+            after >= expr.size() &&
+            is_name_head(expr[static_cast<size_t>(start)]);
+        return {"未知的符号：" + quote_token(tok) + "（位置 " +
+                    std::to_string(human_pos) + "）。\n"
+                    "本计算器不支持变量，请检查拼写或改用库内建的常量（如 PI、E）。",
+                name_being_typed};
     }
 
     if (c == ')') {
-        return "右括号 ')' 多余（位置 " + std::to_string(human_pos) + "）。";
+        return {"右括号 ')' 多余（位置 " + std::to_string(human_pos) + "）。",
+                false};
     }
     if (c == ',') {
-        return "参数分隔符 ',' 的位置不正确（位置 " + std::to_string(human_pos) +
-               "）。";
+        return {"参数分隔符 ',' 的位置不正确（位置 " +
+                    std::to_string(human_pos) + "）。",
+                false};
     }
     if (c == '.') {
-        return "小数点位置不正确（位置 " + std::to_string(human_pos) + "）。";
+        return {"小数点位置不正确（位置 " + std::to_string(human_pos) + "）。",
+                false};
     }
 
     // 5) 二元运算符附近缺操作数 —— 库给出的位置就是那个运算符，
@@ -366,23 +388,32 @@ std::string friendly_syntax_error(std::string_view lib_message, int pos,
         const bool has_rhs = has_nonspace_after(expr, pos);
         const bool has_lhs = has_nonspace_before(expr, pos);
         if (!has_rhs && !has_lhs) {
-            return std::string("表达式不完整：只输入了一个运算符 '") + c + "'。";
+            // 刚敲下一个运算符，等号右边还什么都没有
+            return {std::string("表达式不完整：只输入了一个运算符 '") + c + "'。",
+                    true};
         }
         if (!has_rhs) {
-            return std::string("表达式不完整：运算符 '") + c +
-                   "' 后面缺少操作数（位置 " + std::to_string(human_pos) +
-                   "）。";
+            // "2+" —— 用户多半正准备敲下一个数
+            return {std::string("表达式不完整：运算符 '") + c +
+                        "' 后面缺少操作数（位置 " + std::to_string(human_pos) +
+                        "）。",
+                    true};
         }
         if (!has_lhs) {
-            return std::string("表达式不能以运算符 '") + c +
-                   "' 开头（位置 " + std::to_string(human_pos) + "）。";
+            // "*3"：以运算符开头，是明确的输入错误，不是"还没输完"
+            return {std::string("表达式不能以运算符 '") + c +
+                        "' 开头（位置 " + std::to_string(human_pos) + "）。",
+                    false};
         }
-        return std::string("运算符 '") + c + "' 附近的操作数不完整（位置 " +
-               std::to_string(human_pos) + "）。";
+        // "2+*3"：两个运算符挨在一起，是写错了，不是还没写完
+        return {std::string("运算符 '") + c + "' 附近的操作数不完整（位置 " +
+                    std::to_string(human_pos) + "）。",
+                false};
     }
 
-    return "表达式在位置 " + std::to_string(human_pos) + " 处无法解析：" +
-           describe_char(c) + "。";
+    return {"表达式在位置 " + std::to_string(human_pos) + " 处无法解析：" +
+                describe_char(c) + "。",
+            false};
 }
 
 std::string friendly_invalid_result(std::string_view expr, Mode mode) {

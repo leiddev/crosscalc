@@ -115,6 +115,12 @@ def compare_case(fail, case, data, label, verbose):
             if needle:
                 fail.check(needle in err, f"{label}: 错误消息应包含 {needle!r}，实际 {err!r}")
             fail.check(bool(err), f"{label}: 错误消息不应为空")
+            # "还没输完"标记：前端实时预览据此先不弹错误，必须真的传出来
+            if "expect_incomplete" in case:
+                want = bool(case["expect_incomplete"])
+                got = bool(data.get("incomplete"))
+                fail.check(got is want,
+                           f"{label}: incomplete 期望 {want}，实际 {got}")
             # 中文提示检查（只要出现非 ASCII 就说明经过了翻译层）
             if case.get("require_chinese", False):
                 fail.check(any(ord(c) > 127 for c in err),
@@ -124,6 +130,10 @@ def compare_case(fail, case, data, label, verbose):
     if not fail.check(ok is True,
                       f"{label}: 应当成功，实际 ok={ok} error={data.get('error')!r}"):
         return
+
+    # 成功时 incomplete 必须为 false，否则前端会把好结果当"还没输完"压住
+    fail.check(data.get("incomplete") is False,
+               f"{label}: 成功时 incomplete 应为 false，实际 {data.get('incomplete')!r}")
 
     if "expect" in case:
         got = data.get("display")

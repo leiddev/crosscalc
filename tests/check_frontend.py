@@ -283,6 +283,17 @@ def check_contracts(fail, js, verbose):
     for field in ("expression", "mode", "base", "wordsize"):
         fail.check(f'"{field}"' in js or f"{field}:" in js,
                    f"app.js 未使用请求字段 {field}")
+
+    # 响应字段也要用上：漏读 incomplete 的话，敲到一半的表达式就会一直弹红框
+    for field, why in (
+        ("data.ok", "求值是否成功"),
+        ("data.display", "显示用字符串"),
+        ("data.error", "错误消息"),
+        ("data.error_pos", "错误位置"),
+        ("data.incomplete", "“表达式还没输完”标记"),
+    ):
+        fail.check(field in js, f"app.js 未处理响应字段 {field}（{why}）")
+
     fail.info("接口与字段契约检查完成", verbose)
 
 
