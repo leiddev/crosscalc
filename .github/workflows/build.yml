@@ -39,10 +39,19 @@ jobs:
       - name: 编译 Release
         run: cmake --build --preset release
 
-      # 1) CTest：单元测试（43 个用例）+ 黄金向量（310 条），两个测试都要求打印
+      # 1) CTest：单元测试（44 个用例）+ 黄金向量（334 条），两个测试都要求打印
       #    ALL TESTS PASSED 才算过（PASS_REGULAR_EXPRESSION 写在 CMakeLists 里）。
       - name: 自测 ① 单元测试 + 黄金向量（ctest）
         run: ctest --preset windows-release --output-on-failure
+
+      # CTest 只在失败时吐输出，于是 README 里那几个「多少用例 / 多少断言」的数字
+      # 没法从 CI 日志复核（本机跑出来的数字读者无从验证）。这一步把两个测试程序的
+      # 汇总行直接打进日志：不额外构建、不做新检查，几毫秒，只为可复核。
+      - name: 自测 ① 明细（汇总行打进日志，供 README 复核）
+        run: |
+          build/Release/crosscalc_tests.exe | Select-Object -Last 3
+          build/Release/crosscalc_tests.exe --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | Select-Object -Last 3
+        shell: pwsh
 
       # 2) 端到端：把真实 exe 用 --headless 起起来，把全部黄金向量再经 HTTP 回放一遍。
       #    这一层能抓到编译进去的资源和 API 序列化才出问题的那类 bug。
@@ -114,6 +123,12 @@ jobs:
 
       - name: 自测 ① 单元测试 + 黄金向量（ctest）
         run: ctest --preset linux-release --output-on-failure
+
+      # 同 Windows：把汇总行（用例数 / 断言数 / 跳过数）打进日志，供 README 复核。
+      - name: 自测 ① 明细（汇总行打进日志，供 README 复核）
+        run: |
+          build-linux/crosscalc_tests | tail -n 3
+          build-linux/crosscalc_tests --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | tail -n 3
 
       - name: 自测 ② HTTP 端到端（真实进程，无头）
         run: python3 tests/e2e_api.py --binary build-linux/crosscalc
