@@ -49,8 +49,8 @@ jobs:
       # 汇总行直接打进日志：不额外构建、不做新检查，几毫秒，只为可复核。
       - name: 自测 ① 明细（汇总行打进日志，供 README 复核）
         run: |
-          build/Release/crosscalc_tests.exe | Select-Object -Last 3
-          build/Release/crosscalc_tests.exe --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | Select-Object -Last 3
+          build/Release/crosscalc_tests.exe | Select-Object -Last 6
+          build/Release/crosscalc_tests.exe --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | Select-Object -Last 6
         shell: pwsh
 
       # 2) 端到端：把真实 exe 用 --headless 起起来，把全部黄金向量再经 HTTP 回放一遍。
@@ -127,8 +127,8 @@ jobs:
       # 同 Windows：把汇总行（用例数 / 断言数 / 跳过数）打进日志，供 README 复核。
       - name: 自测 ① 明细（汇总行打进日志，供 README 复核）
         run: |
-          build-linux/crosscalc_tests | tail -n 3
-          build-linux/crosscalc_tests --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | tail -n 3
+          build-linux/crosscalc_tests | tail -n 6
+          build-linux/crosscalc_tests --vectors tests/vectors/standard.json tests/vectors/scientific.json tests/vectors/programmer.json tests/vectors/errors.json | tail -n 6
 
       - name: 自测 ② HTTP 端到端（真实进程，无头）
         run: python3 tests/e2e_api.py --binary build-linux/crosscalc
