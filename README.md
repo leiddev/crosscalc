@@ -449,6 +449,9 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 2. **定版本号**（SemVer，`v` 前缀不能少，工作流按 `v*` 匹配）：
    `v0.1.1`（修 bug）、`v0.2.0`（加功能）、`v1.0.0`（破坏性改动）、
    `v0.2.0-rc1`（自动标成 Pre-release，不顶掉 Latest）。
+   **别只改 tag**：`CMakeLists.txt` 的 `PROJECT_VERSION` 会经 `CROSSCALC_VERSION`
+   编进二进制，`/api/info` 的 `version` 与界面标题都读它，两处必须一致
+   （`v0.1.1` 是把版本号单独提一个 commit 先推 main，等 CI 跑出实测数字，再写发布说明）。
 3. **写发布说明**：`release-notes/vX.Y.Z.md`，纯 Markdown，会**原样**成为 Release 正文。
    没有则退回根目录 `RELEASE_NOTES.md`，再没有才用自动生成（而自动生成列的是「合并的 PR」，
    本仓库都是直接 push，所以只会给一行 changelog 链接，建议手写）。
@@ -509,6 +512,9 @@ Linux 只跳过最后 2 条 —— 也就是说 64 位整数在 Linux 上确实�
 差异完全来自向量数据里的字段声明，C++（`vector_runner.cpp`）与 Python（`e2e_api.py`）两侧的
 闸门写法刻意保持一致，不存在“某一边偷偷放水”的可能。
 这正是 [docs/design-decisions.md 第 3 条](docs/design-decisions.md) 选定的行为。
+
+上表数字都能在 CI 日志里复核：`ctest` 只在失败时吐输出，所以两个平台的构建步骤里
+各加了一行「自测 ① 明细」，把测试程序的汇总行（用例数 / 断言数 / 跳过数）直接打进日志。
 
 ### GitHub Actions
 
