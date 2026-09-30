@@ -1,32 +1,32 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": { "major": 3, "minor": 21, "patch": 0 },
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
   "configurePresets": [
     {
       "name": "x64",
       "displayName": "Windows x64  —  默认（GUI，无控制台窗口）",
-      "description": "生成 build/ ，Release 产物为 build/Release/webview-demo.exe。不指定 generator，跟随本机默认（最新）的 Visual Studio，所以 VS2022 / VS2026 都能直接用。",
+      "description": "生成 build/ ，Release 产物为 build/Release/crosscalc.exe。不指定 generator，跟随本机默认（最新）的 Visual Studio，所以 VS2022 / VS2026 都能直接用。",
       "architecture": { "value": "x64", "strategy": "set" },
       "binaryDir": "${sourceDir}/build",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
       "cacheVariables": {
-        "WEBVIEW_DEMO_CONSOLE": "OFF"
+        "CROSSCALC_CONSOLE": "OFF"
       }
     },
     {
       "name": "x64-console",
       "displayName": "Windows x64  —  控制台版（调试用，能直接看日志）",
-      "description": "生成 build-console/ ，运行时会附带一个控制台窗口",
+      "description": "生成 build-console/ ，运行时会附带一个控制台窗口；HTTP 日志可以当接口调试手段看",
       "inherits": "x64",
       "binaryDir": "${sourceDir}/build-console",
       "cacheVariables": {
-        "WEBVIEW_DEMO_CONSOLE": "ON"
+        "CROSSCALC_CONSOLE": "ON"
       }
     },
     {
       "name": "linux",
       "displayName": "Linux  —  Ninja / Release",
-      "description": "生成 build-linux/ 。需要 cmake>=3.20、gcc>=10（或等价 clang）、pkg-config、libgtk-3-dev、libwebkit2gtk-4.1-dev",
+      "description": "生成 build-linux/ 。需要 cmake>=3.20、gcc>=11（或等价 clang）、pkg-config、libgtk-3-dev、libwebkit2gtk-4.1-dev",
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-linux",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" },
@@ -38,7 +38,7 @@
     {
       "name": "linux-debug",
       "displayName": "Linux  —  Ninja / Debug",
-      "description": "Linux 上默认构建本来就是控制台程序（日志直接打到终端），不需要 WEBVIEW_DEMO_CONSOLE",
+      "description": "Linux 上默认构建本来就是控制台程序（日志直接打到终端），不需要 CROSSCALC_CONSOLE",
       "inherits": "linux",
       "binaryDir": "${sourceDir}/build-linux-debug",
       "cacheVariables": {
@@ -78,6 +78,34 @@
       "name": "linux-debug",
       "displayName": "Linux Debug",
       "configurePreset": "linux-debug",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-release",
+      "displayName": "Windows Release 自测",
+      "configurePreset": "x64",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": true },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "windows-debug",
+      "displayName": "Windows Debug 自测",
+      "configurePreset": "x64",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": true },
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" }
+    },
+    {
+      "name": "linux-release",
+      "displayName": "Linux Release 自测",
+      "configurePreset": "linux",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": true },
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
     }
   ]

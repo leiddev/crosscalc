@@ -250,7 +250,10 @@ json result_to_json(const crosscalc::EvalRequest& req,
     out["expression"] = req.expression;
     if (r.ok) {
         out["display"] = r.display;
-        out["value"] = r.value;
+        // JSON 的数字类型装不下 64 位整数，这里显式窄化成 double。
+        // 需要精确值时看 display（十六进制/二进制位模式那一串），
+        // 这也是前端在程序员模式下显示结果的字段。
+        out["value"] = static_cast<double>(r.value);
         out["integral"] = r.integral;
         out["error"] = nullptr;
         out["error_pos"] = -1;
@@ -276,8 +279,10 @@ json platform_json() {
     return json{
         {"supports_64bit", info.supports_64bit},
         {"max_integer_bitness", info.max_integer_bitness},
-        {"max_integer", info.max_integer},
-        {"max_bitops_value", info.max_bitops_value},
+        // 同 result_to_json：JSON 数字是 double 精度，这里只是给前端做展示，
+        // 是否启用 QWORD 一律以 supports_64bit 为准。
+        {"max_integer", static_cast<double>(info.max_integer)},
+        {"max_bitops_value", static_cast<double>(info.max_bitops_value)},
         {"os", k_os_name},
     };
 }
@@ -514,10 +519,14 @@ int main(int argc, char** argv) {
     log_line("LISTENING " + url);
 
     const auto platform = crosscalc::Engine::platform_info();
+    // 这里只报"能不能精确表示 64 位整数"，不报最大值本身：
+    // 最大精确整数在支持 64 位的平台上是 2^64−1，而把它打印出来必然要经过
+    // 十进制格式化，17 位有效数字下会显示成 2^64（18446744073709551616），
+    // 看起来像是差一，容易误导。位数（bitness）才是这个能力的关键指标。
     log_line(std::string("平台整数精度: ") +
-             (platform.supports_64bit ? "支持 64 位精确整数" : "仅支持 53 位精确整数") +
-             "（最大精确整数 " + crosscalc::format_general(platform.max_integer) +
-             "）");
+             (platform.supports_64bit ? "支持 64 位精确整数（QWORD 可用）"
+                                      : "仅支持 53 位精确整数（QWORD 不可用）") +
+             "，精确整数位数 " + std::to_string(platform.max_integer_bitness) + " bit");
 
     // ---- 3. headless：不开窗口，等待 Ctrl+C / 被 kill --------------------
     if (opt.headless) {

@@ -11,6 +11,8 @@ on:
   # 供 release.yml 在推 tag 时复用这两个平台的构建（同一 run，产物可直接下载）
   workflow_call:
 
+# 自测是硬性要求：两个平台都必须把「单元测试 + 黄金向量 + 前端一致性 + HTTP 端到端」
+# 全部跑绿，构建才算通过。任何一层失败都会让 job 红掉，从而挡住 release。
 jobs:
   # ---------------------------------------------------------------- Windows --
   windows:
@@ -25,21 +27,46 @@ jobs:
         run: |
           cmake --version
           git --version
+          python --version
+        shell: pwsh
 
       # 预设里刻意不写死 Visual Studio 版本，跟随 runner 上默认（最新）的 VS：
       # windows-latest 现在已经只有 VS2026，写死 "Visual Studio 17 2022" 会直接报
       # 「could not find any instance of Visual Studio」。
-      - name: 配置（会自动拉取 cpp-httplib / webview / cpp-embedlib / nlohmann-json / WebView2 SDK）
+      - name: 配置（会自动拉取 cpp-httplib / webview / cpp-embedlib / nlohmann-json / tinyexpr++ / WebView2 SDK）
         run: cmake --preset x64
 
       - name: 编译 Release
         run: cmake --build --preset release
 
+      # 1) CTest：单元测试（43 个用例）+ 黄金向量（310 条），两个测试都要求打印
+      #    ALL TESTS PASSED 才算过（PASS_REGULAR_EXPRESSION 写在 CMakeLists 里）。
+      - name: 自测 ① 单元测试 + 黄金向量（ctest）
+        run: ctest --preset windows-release --output-on-failure
+
+      # 2) 端到端：把真实 exe 用 --headless 起起来，把全部黄金向量再经 HTTP 回放一遍。
+      #    这一层能抓到编译进去的资源和 API 序列化才出问题的那类 bug。
+      - name: 自测 ② HTTP 端到端（真实进程）
+        run: python tests/e2e_api.py --binary build/Release/crosscalc.exe
+        shell: pwsh
+
+      # 3) 前端静态一致性：键盘按钮只能插入引擎真正认识的函数，DOM id / 模式集合 /
+      #    /api/* 契约都要对得上。不启动浏览器也能守住最常见的"改前端忘了改后端"。
+      - name: 自测 ③ 前端 ↔ 引擎一致性
+        run: python tests/check_frontend.py --tests-binary build/Release/crosscalc_tests.exe
+        shell: pwsh
+
+      # 4) app.js 里纯函数用 Node 真跑一遍。重点是二进制/八进制数字键 → 0x 字面量
+      #    的重排：算错了界面不会报错，只会静默显示成另一个数，必须靠对照验证。
+      - name: 自测 ④ app.js 纯函数（Node）
+        run: node tests/js_frontend_test.js
+        shell: pwsh
+
       - name: 检查产物
         run: |
-          if (-not (Test-Path build/Release/webview-demo.exe)) { throw "产物缺失" }
-          $len = (Get-Item build/Release/webview-demo.exe).Length
-          Get-Item build/Release/webview-demo.exe | Format-List Name, Length
+          if (-not (Test-Path build/Release/crosscalc.exe)) { throw "产物缺失" }
+          $len = (Get-Item build/Release/crosscalc.exe).Length
+          Get-Item build/Release/crosscalc.exe | Format-List Name, Length
           # 顺手发一条 annotation：日志本身要 token 才能读，annotation 不用，
           # 这样 README 里的体积数字随时可以从 API 复核。
           Write-Host "::notice title=Windows 产物大小::$len 字节"
@@ -48,8 +75,8 @@ jobs:
       - name: 上传产物
         uses: actions/upload-artifact@v6
         with:
-          name: webview-demo-win-x64
-          path: build/Release/webview-demo.exe
+          name: crosscalc-win-x64
+          path: build/Release/crosscalc.exe
           if-no-files-found: error
 
   # ------------------------------------------------------------------ Linux --
@@ -62,119 +89,70 @@ jobs:
         uses: actions/checkout@v5
 
       # Linux 上 webview 会在 configure 阶段就要求 pkg-config + GTK + WebKitGTK；
-      # xvfb 是为了后面能无头启动 GUI 做冒烟测试。
+      # xvfb 是为了最后能无头启动 GUI 做冒烟测试。
       - name: 安装依赖
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config ninja-build xvfb
+            libgtk-3-dev libwebkit2gtk-4.1-dev pkg-config ninja-build xvfb python3
 
+      # Ubuntu 22.04 的 apt nodejs 是 12，够用（app.js 刻意避开了 ES2020+ 语法，
+      # 原因之一就是它要能被 Node 加载做单元测试）。这里确认一下版本，便于排查。
       - name: 环境信息
         run: |
           cmake --version
           g++ --version
+          python3 --version
+          node --version
           pkg-config --modversion webkit2gtk-4.1 gtk+-3.0
 
-      - name: 配置（会自动拉取 cpp-httplib / webview / cpp-embedlib / nlohmann-json）
+      - name: 配置（会自动拉取 cpp-httplib / webview / cpp-embedlib / nlohmann-json / tinyexpr++）
         run: cmake --preset linux
 
       - name: 编译 Release
         run: cmake --build --preset linux-release
 
+      - name: 自测 ① 单元测试 + 黄金向量（ctest）
+        run: ctest --preset linux-release --output-on-failure
+
+      - name: 自测 ② HTTP 端到端（真实进程，无头）
+        run: python3 tests/e2e_api.py --binary build-linux/crosscalc
+
+      - name: 自测 ③ 前端 ↔ 引擎一致性
+        run: python3 tests/check_frontend.py --tests-binary build-linux/crosscalc_tests
+
+      - name: 自测 ④ app.js 纯函数（Node）
+        run: node tests/js_frontend_test.js
+
       - name: 检查产物
         run: |
-          test -x build-linux/webview-demo
-          ls -l build-linux/webview-demo
-          file build-linux/webview-demo
+          test -x build-linux/crosscalc
+          ls -l build-linux/crosscalc
+          file build-linux/crosscalc
           # annotation 可以不带 token 读（日志不行），README 的体积数字靠它复核
-          echo "::notice title=Linux 产物大小::$(stat -c%s build-linux/webview-demo) 字节"
-          ldd build-linux/webview-demo | grep -i webkit
+          echo "::notice title=Linux 产物大小::$(stat -c%s build-linux/crosscalc) 字节"
+          ldd build-linux/crosscalc | grep -i webkit
 
-      - name: 冒烟测试（Xvfb 无头运行 + 打接口 + 校验日志）
-        run: |
-          set -eux
-          export WEBKIT_DISABLE_DMABUF_RENDERER=1
-          export WEBKIT_DISABLE_COMPOSITING_MODE=1
-          export LIBGL_ALWAYS_SOFTWARE=1
-          export GDK_BACKEND=x11
-
-          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
-            ./build-linux/webview-demo --port 18080 > /tmp/run.log 2>&1 &
-          APP=$!
-
-          # 等 HTTP 服务起来（最多 30 秒）
-          for _ in $(seq 1 30); do
-            if curl -sf -o /dev/null "http://127.0.0.1:18080/api/info"; then break; fi
-            sleep 1
-          done
-
-          # 每个接口的返回都要：① 能被真正的 JSON 解析器吃掉 ② 关键字段对得上。
-          # 这正是引入 JSON 库之后应该守住的东西 —— 手写拼接最怕的就是悄悄产出非法 JSON。
-          assert_json() {  # $1=标签 $2=必须出现的片段；JSON 正文从 stdin 读
-            local body; body=$(cat)
-            printf '  %-26s %s\n' "$1" "$body"
-            if ! printf '%s' "$body" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
-              echo "::error title=$1::返回的不是合法 JSON: $body"; exit 1
-            fi
-            case "$body" in
-              *"$2"*) ;;
-              *) echo "::error title=$1::缺少 $2，实际: $body"; exit 1 ;;
-            esac
-          }
-
-          echo "--- 接口 JSON 校验 ---"
-          curl -sf "http://127.0.0.1:18080/api/info" \
-            | assert_json "GET /api/info" '"nlohmann/json":"'
-          curl -sf "http://127.0.0.1:18080/api/hello" \
-            | assert_json "GET /api/hello" '"from":"GET /api/hello"'
-          curl -sf "http://127.0.0.1:18080/api/echo?q=%E4%BD%A0" \
-            | assert_json "GET /api/echo" '"you_said":"你"'
-          curl -sf -X POST -d 'a=12&b=30' "http://127.0.0.1:18080/api/add" \
-            | assert_json "POST /api/add" '"sum":42.0'
-          curl -sf "http://127.0.0.1:18080/api/assets" \
-            | assert_json "GET /api/assets" '"app.js"'
-          # 非法 UTF-8 不能把服务打挂，也不能吐出非法 JSON（error_handler_t::replace）
-          curl -sf "http://127.0.0.1:18080/api/echo?q=%FF%FE" \
-            | assert_json "GET /api/echo (坏 UTF-8)" '"length":2'
-          # 缺参数时必须是 400（-f 会让 4xx 失败，这里单独测状态码）
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'a=1' "http://127.0.0.1:18080/api/add")
-          if [ "$code" != "400" ]; then
-            echo "::error title=/api/add::缺参数应返回 400，实际 $code"; exit 1
-          fi
-          printf '  %-26s %s\n' "POST /api/add (缺参数)" "HTTP $code ✓"
-
-          echo "--- 静态资源（cpp-embedlib + mount）---"
-          for u in / /style.css /app.js; do
-            curl -sf -o /dev/null -w "  GET $u -> %{http_code} (%{size_download}B)\n" \
-              "http://127.0.0.1:18080$u"
-          done
-
-          # 内嵌资源必须是"这一版"的：改过 www/ 却因为 mtime 没变而跳过嵌入，
-          # 是 cpp-embedlib 最阴的一个坑（编出来还是旧页面，还不报错）。
-          # 用一个只有新页面才有的字符串守一下。
-          curl -sf "http://127.0.0.1:18080/" | grep -q 'nlohmann/json' \
-            || { echo "::error title=首页内容::内嵌的 index.html 不是最新的（缺 nlohmann/json）"; exit 1; }
-          printf '  %-26s %s\n' "首页含 nlohmann/json" "✓"
-
-          echo "--- 程序日志 ---"
-          cat /tmp/run.log
-
-          # 窗口自己会请求 /app.js，说明 GTK/WebKitGTK 真的把页面加载起来了
-          grep -q 'GET /app.js' /tmp/run.log
-
-          kill "$APP" 2>/dev/null || true
-          pkill -x webview-demo 2>/dev/null || true
+      # 上面三步都是无头验证，碰不到 GTK / WebKitGTK。这一步真的把 GUI 开起来
+      # （Xvfb 提供显示），验证渲染链路是通的、接口返回的是合法 JSON、
+      # 且内嵌的前端资源是"这一版"的。逻辑都在脚本里，本地也能直接跑：
+      #   bash tests/smoke_gui.sh build-linux/crosscalc
+      - name: 冒烟测试（Xvfb 无头运行 GUI）
+        run: bash tests/smoke_gui.sh build-linux/crosscalc
 
       - name: 上传产物
         uses: actions/upload-artifact@v6
         with:
-          name: webview-demo-linux-x64
-          path: build-linux/webview-demo
+          name: crosscalc-linux-x64
+          path: build-linux/crosscalc
           if-no-files-found: error
 
 # 说明：
-# - Windows job 只做「配置 + 编译」，不在 CI 里启动 GUI：
-#   没有交互式桌面会话时 webview 可能创建窗口失败，而失败时会弹模态提示框把任务挂住。
-#   想跑运行时冒烟测试，请在有桌面的机器上执行 build/Release/webview-demo.exe --port 8080。
-# - Linux job 因为有 Xvfb，可以真的把窗口跑起来：断言「程序日志里出现窗口自己发起的
-#   GET /app.js」，就等于验证了 GTK + WebKitGTK 渲染链路是通的。
+# - 自测分三层，任何一层失败都会让 job 红掉：
+#   ① ctest —— 纯计算逻辑，不依赖网络和图形界面，跑得最快；
+#   ② e2e_api.py —— 启动真实进程，验证「编译进去的东西」是对的；
+#   ③ check_frontend.py —— 静态检查前端与引擎的契约，不用浏览器。
+# - Windows job 不启动 GUI：没有交互式桌面会话时 webview 可能创建窗口失败，
+#   而失败时会弹模态提示框把任务挂住。好在 e2e 用的是 --headless，不需要桌面。
+# - Linux job 因为有 Xvfb，最后可以真的把窗口跑起来：断言「程序日志里出现窗口
+#   自己发起的 GET /app.js」，就等于验证了 GTK + WebKitGTK 渲染链路是通的。

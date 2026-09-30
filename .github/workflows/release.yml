@@ -31,27 +31,27 @@ jobs:
       - name: 取回 Windows 产物
         uses: actions/download-artifact@v7
         with:
-          name: webview-demo-win-x64
+          name: crosscalc-win-x64
           path: dist/win
 
       - name: 取回 Linux 产物
         uses: actions/download-artifact@v7
         with:
-          name: webview-demo-linux-x64
+          name: crosscalc-linux-x64
           path: dist/linux
 
       - name: 整理成发布用的文件名
         run: |
           set -euo pipefail
           exe=$(find dist/win   -type f -name '*.exe' | head -n1)
-          bin=$(find dist/linux -type f -name 'webview-demo' | head -n1)
+          bin=$(find dist/linux -type f -name 'crosscalc' | head -n1)
           if [ -z "$exe" ] || [ -z "$bin" ]; then
             echo "没找到构建产物：exe='$exe' bin='$bin'"; find dist -type f; exit 1
           fi
           mkdir -p release
-          cp "$exe" "release/webview-demo-${GITHUB_REF_NAME}-windows-x64.exe"
-          cp "$bin" "release/webview-demo-${GITHUB_REF_NAME}-linux-x64"
-          chmod +x "release/webview-demo-${GITHUB_REF_NAME}-linux-x64"
+          cp "$exe" "release/crosscalc-${GITHUB_REF_NAME}-windows-x64.exe"
+          cp "$bin" "release/crosscalc-${GITHUB_REF_NAME}-linux-x64"
+          chmod +x "release/crosscalc-${GITHUB_REF_NAME}-linux-x64"
           ls -lh release
 
       - name: 发布 Release
