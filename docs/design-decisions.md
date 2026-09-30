@@ -364,3 +364,62 @@ curl 打到的其实是**上一个进程**，返回 404，而错误信息看起�
 - 向量和 e2e 都加了 `expect_incomplete` 字段（`vector_runner.cpp` 与 `e2e_api.py` 各断言一次），
   并且**成功时 `incomplete` 必须为 `false`**，否则前端会把好结果当成"没输完"压住不显示。
   这条约束同样写在 `tests/check_frontend.py` 的字段契约检查里（少读这个字段就报错）。
+
+---
+
+## 15. 键盘必须钉在原地：错误区高度写死，键盘不许被压缩
+
+上一节解决了"错误什么时候该弹"，这一节解决"弹出来的时候别乱动"。
+
+### 错误提示区占固定高度
+
+错误框**不是** `hidden` 显示/隐藏，而是永远占着 `--error-slot`（80px）那么高，
+没出错时只把内容用 `.error-box.is-empty { visibility: hidden }` 藏起来：
+
+```css
+.error-box          { height: var(--error-slot); overflow: auto; }
+.error-box.is-empty { visibility: hidden; }
+```
+
+如果换成 `hidden` 属性或 `display: none`，元素高度会塌成 0，错误一来一去整块键盘
+就跟着上下跳 40px——而这恰恰是打字最频繁的时刻。`visibility: hidden` 保留占位，
+所以下面的键盘**一像素都不动**（用 headless 浏览器量过：位移 0px）。
+
+两个连带的约束：
+
+- **80px 是量出来的，不是拍的。** 内容是"两行提示（13px×1.35）+ 两行定位
+  （12px×1.2，一行表达式一行 `^`）"，实测 76px。调小就会把 `^` 挤到可视区外，
+  调大就是白占键盘的地盘。更长的提示在框内自己滚，绝不往外顶。
+- **`^` 箭头必须落在预算内。** 表达式长度没有上限，整条铺出来会撑出横向滚动条，
+  滚动条又要吃掉一行高度，等于把箭头弄丢。所以 `app.js` 的 `caretWindow()`
+  以出错处为中心截一段（默认 72 字符，两头用 `…` 收尾）。
+  它守住两条不变量，`tests/js_frontend_test.js` 逐条断言：
+  `badWidth >= 1`（光标停在末尾时也得有个 `^` 指着）、
+  `head.length + badWidth <= budget` 且整行也不超预算。
+
+### 键盘宁可撑出滚动条，也不能被压扁
+
+`.calc` 是 flex 列，里面只有键盘是可压缩的。窗口一矮，flex 会一路把键盘压到
+**0 高**——按键全部消失（程序员模式 6 行最先撞上）。所以：
+
+```css
+.calc     { overflow-y: auto; }  /* 装不下就让整列滚，别动孩子 */
+.keypads  { flex: 1 0 auto; }    /* flex-shrink 必须是 0 */
+.kp-row   { min-height: 44px; }  /* 再挤也要保住一行的高度 */
+```
+
+这里的 `.kp-row` 同时是程序员模式可读性的下限：一行 44px、字 15/17/20/21px，
+按键上的 `2nd`、`HEX`、`÷` 才看得清。之前的拥挤主要来自三处——字号偏小
+（功能键 13px）、禁用态对比度太低（opacity .3）、进制面板排成 4 行白白吃掉
+一块。现在改成 15px、opacity .45、进制面板两行（BIN 独占一行，因为它的按钮多）。
+
+### 这类约定用静态检查钉住
+
+"错误区高度写死"和"键盘不许收缩"是纯 CSS 行为：C++ 单测、JS 纯函数测试都碰不到，
+而回归起来极其显眼、又极其容易被好心改坏（"用 `hidden` 更语义化"、"窗口小的时候
+键盘紧凑点更好看"）。所以 `tests/check_frontend.py` 里加了 `check_layout_anchors()`：
+直接检查 `:root` 有没有 `--error-slot`、`.error-box` 高度是不是 `var(--error-slot)`、
+`.is-empty` 用的是不是 `visibility`、`html` 里有没有偷偷用回 `hidden` 属性、
+`.calc` 滚不滚、`.keypads` 是不是 `flex: 1 0 auto`、`.kp-row` 有没有 `min-height`。
+这几个断言都验证过"改坏就报错"。
+

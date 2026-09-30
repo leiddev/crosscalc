@@ -154,6 +154,68 @@ ok(!errorIsPending({ ok: true, incomplete: false }, undefined),
 ok(!errorIsPending(null, undefined), '空响应不能抛异常');
 ok(!errorIsPending(undefined, { commit: true }), '空响应 + commit 不能抛异常');
 
+// ------------------------------------------------------ 错误定位行的取景 --
+// 错误框高度是写死的（CSS --error-slot），长表达式整条铺出来会撑出滚动条，
+// 滚动条又吃掉一行高度，`^` 箭头就被挤没了。caretWindow() 把要展示的片段
+// 截到固定预算内（两头用 … 表示省略）。
+// 真正要守住的不变量有两条：
+//   1. 箭头指着的那一格，正好是标红片段的第一格（不然用户按箭头找不到错）；
+//   2. 箭头行不超预算（超了就会横滚，等于把箭头弄丢）。
+const { caretWindow } = app;
+
+const wShort = caretWindow('1+2)', 3, 1, 72);
+eq(wShort.bad, ')', '短表达式：标红片段就是出错处');
+eq(wShort.head, '1+2', '短表达式：从头到尾都展示，左边不加省略号');
+eq(wShort.tail, '', '短表达式：出错处在末尾，右边没有内容');
+eq(wShort.badWidth, 1, '短表达式：^ 只需一个');
+
+const longExpr = '1+2+3+4+5+6+7+8+9+10+11+12+13+14+15+16+17+18+19+20+21+22+23+24+25+26+27+28+29+30+31*(';
+const tailPos = longExpr.indexOf('*(');
+const wTail = caretWindow(longExpr, tailPos + 1, 1, 72);
+ok(wTail.head.startsWith('…'), '长表达式：左边截断要有省略号');
+const width = (w) => w.head.length + w.bad.length + w.tail.length;
+ok(wTail.head.length + wTail.badWidth <= 72, '长表达式：箭头行不超预算');
+ok(width(wTail) <= 72, `长表达式：整行不超过预算（实际 ${width(wTail)}）`);
+
+// 出错处在正中间：左右都要给上下文，不能只顾一边
+const wMid = caretWindow(longExpr, Math.floor(longExpr.length / 2), 1, 72);
+ok(wMid.head.length > 1 && wMid.tail.length > 1, '中间的错：左右都能看到上下文');
+
+// 出错处在开头：左边无内容，就不该白白占着省略号的位置
+eq(caretWindow('nosuchfn(1)', 0, 8, 72).head, '', '开头的错：左边没有省略号');
+eq(caretWindow('nosuchfn(1)', 0, 8, 72).bad, 'nosuchfn', '开头的错：标红整段');
+
+// 出错片段自己就长得离谱（整串粘进来的数字）：也不能把 ^ 行顶出去
+const wHuge = caretWindow('1+' + '9'.repeat(200), 2, 200, 72);
+ok(wHuge.head.length + wHuge.badWidth <= 72, '超长出错片段：箭头行照样不超预算');
+ok(wHuge.bad.endsWith('…'), '超长出错片段：标红片段内部也省略');
+
+// 箭头行的对齐：把两行拼出来，箭头必须落在标红的第一格上
+function caretAlign(w) {
+  const line1 = w.head + w.bad + w.tail;
+  const line2 = ' '.repeat(w.head.length) + '^'.repeat(Math.max(1, w.badWidth));
+  return line2.indexOf('^') === w.head.length;
+}
+ok(caretAlign(wTail), '箭头与标红片段起始位置对齐（末尾出错）');
+ok(caretAlign(wMid), '箭头与标红片段起始位置对齐（中间出错）');
+ok(caretAlign(wHuge), '箭头与标红片段起始位置对齐（超长片段）');
+ok(caretAlign(wShort), '箭头与标红片段起始位置对齐（未截断）');
+
+// 预算再小也不能把箭头行撑爆（比如以后有人把 max 调小）
+for (const budget of [8, 16, 40, 72]) {
+  const w = caretWindow(longExpr, tailPos + 1, 1, budget);
+  ok(w.head.length + w.badWidth <= budget, `预算 ${budget}：箭头行不超预算`);
+  ok(width(w) <= budget, `预算 ${budget}：整行不超过预算（实际 ${width(w)}）`);
+}
+
+// 空表达式 / 光标停在末尾 / 越界位置都不能抛异常
+eq(caretWindow('', 0, 0, 72).badWidth, 1, '空表达式：箭头行至少一个 ^');
+ok(caretWindow('', 0, 0, 72).head === '', '空表达式：左边没东西可指');
+eq(caretWindow('1+', 2, 1, 72).bad, '', '光标停在末尾：没有要标红的字符');
+eq(caretWindow('1+', 2, 1, 72).badWidth, 1, '光标停在末尾：照样给一个 ^');
+// showError() 会先挡掉越界位置，这里只是保证真被绕过去时不会炸
+ok(typeof caretWindow('1+', 5, 3, 72).head === 'string', '位置越界：不抛异常');
+
 // ------------------------------------------------------------------ 汇总 --
 console.log(`JS 前端纯函数：${checks} 条断言（其中 ${bigintChecks} 条与 BigInt 对照）`);
 if (failures.length > 0) {

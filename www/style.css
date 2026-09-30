@@ -26,6 +26,11 @@
   --radius:      10px;
   --radius-sm:   7px;
   --gap:         8px;
+  /* 错误提示区永远占这么高（见 .error-box）：两行提示 + 两行定位（表达式 + ^ 箭头）。
+     高度写死是为了让出错/恢复都不影响键盘位置——这里按"最常见的一条提示"来定，
+     个别超长提示（如 QWORD 的平台说明）就在框内滚动。
+     注意：这个值不是随便调的，改小就会把 ^ 箭头挤出可视区，改大就是白白浪费键盘高度。 */
+  --error-slot:  80px;
 
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Consolas, "Liberation Mono",
           Menlo, monospace;
@@ -105,9 +110,12 @@ body {
 .calc {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-height: 0;
   min-width: 0;
+  /* 窗口矮到装不下「显示区 + 提示区 + 面板 + 键盘」时，让整列自己滚。
+     否则 flex 会把键盘（唯一可压缩的一块）一直压到 0 高——按一个键都找不到。 */
+  overflow-y: auto;
 }
 
 /* ------------------------------------------------------------- 显示区 ---- */
@@ -115,10 +123,10 @@ body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 12px 16px;
+  padding: 9px 16px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 5px;
 }
 
 .display-line { display: flex; }
@@ -157,14 +165,20 @@ body {
 .result-note { color: var(--fg-faint); font-size: 12px; white-space: nowrap; }
 
 /* --------------------------------------------------------- 错误提示框 ---- */
+/* 高度写死成 --error-slot：没出错时 .is-empty 只是把内容藏起来，位置照样占着。
+   这样错误来去都不会推动下面的键盘（打字时最忌讳按键乱跳）。
+   两行提示（13px×1.35）+ 两行定位（12px×1.2，一行表达式一行 ^ 箭头）实测 76px，
+   正好放得下；更长的提示就在框内滚动，绝不往外顶。 */
 .error-box {
+  flex: 0 0 auto;
+  height: var(--error-slot);
   border: 1px solid #6b2b2b;
   background: var(--warn-bg);
   border-radius: var(--radius);
-  padding: 10px 14px;
-  max-height: 30vh;
+  padding: 4px 12px;
   overflow: auto;
 }
+.error-box.is-empty { visibility: hidden; }
 .error-head { display: flex; gap: 9px; align-items: flex-start; }
 
 .error-icon {
@@ -179,18 +193,18 @@ body {
 .error-text {
   margin: 0;
   font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.35;
   color: #ffd9d9;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .error-caret {
-  margin: 8px 0 0 28px;
+  margin: 4px 0 0 28px;
   font-family: var(--mono);
-  font-size: 13px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.2;
   color: var(--fg-dim);
   white-space: pre;
   overflow-x: auto;
@@ -202,10 +216,10 @@ body {
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 14px;
+  padding: 8px 14px;
 }
 
-.prog-controls { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 10px; }
+.prog-controls { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 6px; }
 
 .seg { display: flex; gap: 3px; background: var(--bg); padding: 3px; border-radius: var(--radius-sm); }
 .seg-btn {
@@ -218,13 +232,21 @@ body {
 .seg-btn[aria-pressed="true"] { background: var(--accent); color: #fff; font-weight: 600; }
 .seg-btn:disabled { opacity: .38; cursor: not-allowed; }
 
-.base-list { margin: 0; display: grid; gap: 2px; }
+/* 四种进制的读数：hex/dec/oct 并排一行，bin 单独占满整行（位串很长，
+   挤在三分之一宽度里就得左右滚了）。四行压成两行，省下来的高度留给键盘。 */
+.base-list {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px 10px;
+}
+.base-row[data-base="bin"] { grid-column: 1 / -1; }
 .base-row {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr);
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: baseline;
-  gap: 10px;
-  padding: 4px 8px;
+  gap: 8px;
+  padding: 3px 8px;
   border-radius: 6px;
   cursor: pointer;
 }
@@ -237,12 +259,19 @@ body {
 .base-row[data-active="true"] dt { color: #dbe7ff; }
 .base-row dd {
   margin: 0;
-  font-family: var(--mono); font-size: 16px;
+  font-family: var(--mono); font-size: 15px;
   color: var(--fg);
   overflow-x: auto; white-space: nowrap;
 }
 
-.prog-hint { margin: 8px 0 0; font-size: 12px; color: var(--fg-faint); line-height: 1.5; }
+/* 提示行高度也写死：换行、被警告临时占用都不该让键盘上下跳。
+   文案本身按一行来写（见 app.js 的 updateBasePanel），太长时行内滚动。 */
+.prog-hint {
+  margin: 5px 0 0;
+  height: 18px;
+  overflow: auto;
+  font-size: 12px; color: var(--fg-faint); line-height: 1.5;
+}
 .prog-hint.warn { color: #ffb86b; }
 
 .sci-note {
@@ -255,18 +284,22 @@ body {
 
 /* --------------------------------------------------------------- 键盘 ---- */
 .keypads {
-  flex: 1 1 auto;
+  /* flex-shrink 必须是 0：键盘宁可把 .calc 顶出滚动条，也不能被压扁。
+     空间富余时 flex-grow 照旧把行撑开，所以标准模式的大键不受影响。 */
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--gap);
   min-height: 0;
 }
 
+/* 行高下限：低于这个数（比如程序员模式 6 行 + 面板一起挤）字就糊成一团了。
+   空间富余时行会一起长高，所以标准模式的大键不受影响。 */
 .kp-row {
   display: flex;
   gap: var(--gap);
   flex: 1 1 0;
-  min-height: 42px;
+  min-height: 44px;
 }
 
 .kp-row.sci-split { gap: var(--gap); }
@@ -281,7 +314,7 @@ body {
   color: var(--fg);
   border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 16px;
+  font-size: 17px;
   cursor: pointer;
   padding: 6px 2px;
   transition: background .1s, border-color .1s, transform .04s;
@@ -291,13 +324,15 @@ body {
 }
 .kp-key:hover:not(:disabled) { background: #333a45; border-color: #3d4450; }
 .kp-key:active:not(:disabled) { transform: translateY(1px); }
-.kp-key:disabled { opacity: .3; cursor: not-allowed; }
+/* 当前进制用不上的键（如 DEC 下的 A~F）：调暗表示不可用，但别暗到看不清字 */
+.kp-key:disabled { opacity: .45; cursor: not-allowed; }
 
-.kp-key.op  { background: var(--op); font-size: 18px; }
-.kp-key.fn  { background: var(--fn); font-size: 13px; font-family: var(--mono); color: #cdd6e5; }
+.kp-key.op  { background: var(--op); font-size: 20px; }
+/* 程序员模式的 AND/ROL/XOR 这些是三个字母的缩写，字号小了根本看不清 */
+.kp-key.fn  { background: var(--fn); font-size: 15px; font-family: var(--mono); color: #dbe3f0; }
 .kp-key.hex { background: #2b2735; font-family: var(--mono); }
-.kp-key.util { background: #2d2a33; font-size: 14px; }
-.kp-key.eq  { background: var(--accent); color: #fff; font-weight: 700; font-size: 19px; }
+.kp-key.util { background: #2d2a33; font-size: 15px; }
+.kp-key.eq  { background: var(--accent); color: #fff; font-weight: 700; font-size: 21px; }
 .kp-key.eq:hover:not(:disabled) { background: #5c98ff; }
 
 .kp-key.spacer { visibility: hidden; pointer-events: none; }

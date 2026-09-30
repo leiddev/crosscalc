@@ -297,6 +297,71 @@ def check_contracts(fail, js, verbose):
     fail.info("接口与字段契约检查完成", verbose)
 
 
+def css_rule(css, selector):
+    """取出某个选择器的声明块文本（够用即可：前端 CSS 没有嵌套规则）。"""
+    m = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", css)
+    return m.group(1) if m else None
+
+
+def check_layout_anchors(fail, html, js, css, verbose):
+    """守住"打字时键盘不许乱动"这条布局约定。
+
+    它是纯 CSS 行为，C++ 单测和 JS 纯函数都碰不到；而回归起来极其显眼又极其
+    容易被好心改坏（比如把固定高度换成 `hidden` 属性，或给键盘加个 flex-shrink
+    好让窗口矮一点时"看起来更紧凑"）。所以在这里用静态检查钉住。
+    """
+    root = css_rule(css, ":root")
+    fail.check(root is not None and "--error-slot" in root,
+               "style.css 的 :root 里应当定义 --error-slot（错误提示区的固定高度）")
+
+    box = css_rule(css, ".error-box")
+    fail.check(box is not None and "height: var(--error-slot)" in box,
+               ".error-box 的高度必须写死成 height: var(--error-slot)："
+               "否则错误出现/消失时，下面的键盘会整体上下跳")
+
+    empty = css_rule(css, ".error-box.is-empty")
+    fail.check(empty is not None, "style.css 缺少 .error-box.is-empty 规则")
+    if empty:
+        fail.check("visibility: hidden" in empty,
+                   ".error-box.is-empty 要用 visibility: hidden 藏内容")
+        fail.check("display" not in empty,
+                   ".error-box.is-empty 不能用 display: none / display 改动："
+                   "元素高度会塌成 0，键盘照样跳")
+
+    # 空错误框靠类名而不是 hidden 属性来隐藏
+    tag = re.search(r'<div[^>]*id="error-box"[^>]*>', html)
+    fail.check(tag is not None, "index.html 中找不到 #error-box")
+    if tag:
+        fail.check("is-empty" in tag.group(0),
+                   "#error-box 初始状态就应带 is-empty 类（而不是 hidden 属性）")
+        fail.check("hidden" not in tag.group(0),
+                   "#error-box 不能用 hidden 属性：一藏就把固定高度也藏没了")
+
+    fail.check("classList.add('is-empty')" in js and "classList.remove('is-empty')" in js,
+               "app.js 应当用 .is-empty 类来显示/隐藏错误提示（不是 hidden 属性）")
+    fail.check("errorBox.hidden" not in js,
+               "app.js 不该再动 errorBox.hidden：一设就把错误区高度弄没了，键盘会跳")
+
+    # 键盘自己：宁可让整列滚，也不能被 flex 压扁
+    calc = css_rule(css, ".calc")
+    fail.check(calc is not None and "overflow-y: auto" in calc,
+               ".calc 需要 overflow-y: auto：窗口太矮时让整列滚动，"
+               "否则 flex 会把键盘（唯一可压缩的一块）一直压到 0 高")
+
+    keypads = css_rule(css, ".keypads")
+    fail.check(keypads is not None, "style.css 缺少 .keypads 规则")
+    if keypads:
+        fail.check(re.search(r"flex:\s*1\s+0\s+auto", keypads) is not None,
+                   ".keypads 必须是 flex: 1 0 auto（不许收缩）：空间不够时应当"
+                   "撑出滚动条，而不是把按键挤成一排看不清的字")
+
+    rows = css_rule(css, ".kp-row")
+    fail.check(rows is not None and "min-height" in rows,
+               ".kp-row 需要 min-height：行高被压扁后按键上的字符就看不清了")
+
+    fail.info("布局约定检查完成（错误区固定高度 + 键盘不被压缩）", verbose)
+
+
 # ---------------------------------------------------------------------- 主流程 --
 def run_js_unit_tests(fail, verbose):
     """用 Node 跑 app.js 里纯函数的单元测试（tests/js_frontend_test.js）。
@@ -372,6 +437,7 @@ def main():
     check_bases(fail, html, js, args.verbose)
     check_wordsizes(fail, html, js, args.verbose)
     check_contracts(fail, js, args.verbose)
+    check_layout_anchors(fail, html, js, css, args.verbose)
 
     ok = run_js_unit_tests(fail, args.verbose)
 

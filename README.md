@@ -224,6 +224,9 @@ bash tests/smoke_gui.sh build-linux/crosscalc
 前端实时预览时据此把错误先按住（结果区显示灰色的 `—`），只在按下等号/回车时才弹红框—— 
 否则每敲一个键都会闪一次错误。判定规则见 [设计决策 §14](docs/design-decisions.md)。
 
+错误框本身占固定高度（`--error-slot`），出现和消失都不会推动下面的键盘；
+键盘在窗口变矮时也不会被压扁，见 [设计决策 §15](docs/design-decisions.md)。
+
 JS → C++ 绑定：`cppEvaluate(requestJson)`、`cppCloseWindow()`。界面优先走
 `cppEvaluate`（同进程、无 HTTP 往返），不可用时自动回退到 `POST /api/eval`。
 
@@ -241,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–19。
+换成计算器后又踩到 13–21。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -371,6 +374,17 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     前端实时预览时先把这些错误按住，只在按下等号/回车时才弹。
     什么算"没输完"、什么算"写错了"，以及"数字开头的 token 不享受这个待遇"这类边界，
     都写在[设计决策 §14](docs/design-decisions.md) 里。
+
+21. **错误提示区的高度必须写死，键盘才不会被顶着走**：错误框平时用
+    `.error-box.is-empty { visibility: hidden }` 藏内容，**不是** `hidden` 属性/`display: none`——
+    后者会把元素高度塌成 0，错误一来一去整块键盘就上下跳 40px，而打字全程都在出错和恢复正常。
+    高度用 `--error-slot: 80px` 写死，值是量出来的（两行提示 + 两行 `^` 定位 = 76px），
+    再长的提示就在框内自己滚。同理，表达式太长时 `^` 定位行会自己横滚、把箭头滚没了，
+    所以 `app.js` 的 `caretWindow()` 只截一小段（两头 `…`）。
+    另外 `.keypads` 是 `flex: 1 0 auto`——窗口矮下去时宁可让 `.calc` 出滚动条，
+    也不能让 flex 把键盘压成 0 高（程序员模式 6 行最先撞上）。
+    这几条都是纯 CSS 约定、单测碰不到，所以由 `tests/check_frontend.py` 静态钉住。
+    细节见[设计决策 §15](docs/design-decisions.md)。
 
 ## 如何发版
 

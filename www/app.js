@@ -488,34 +488,70 @@
   }
 
   // ---------------------------------------------------------- 错误展示 ----
+  /** 定位行要展示的片段：以出错处为中心截一小段，两头用 … 收尾。
+   *
+   *  错误框的高度是写死的（--error-slot），表达式的长度却没有上限：整条铺出来
+   *  会撑出横向滚动条，滚动条又要吃掉一行高度，`^` 就被挤没了。
+   *  返回 { head, bad, badWidth, tail }：head + bad + tail 就是第一行文本，
+   *  bad 是标红的那段，第二行的 ^ 靠 head.length 对齐、长度是 badWidth。
+   *
+   *  两条不变量（tests/js_frontend_test.js 会盯着，改这里记得一起看）：
+   *    · badWidth >= 1 —— 出错处为空（光标停在末尾）时也得有个 ^ 指着；
+   *    · head.length + badWidth <= budget，且 head + bad + tail 也 <= budget
+   *      —— 超了就会在框里横滚，横滚条又吃掉一行，`^` 等于白给。
+   */
+  function caretWindow(expr, pos, len, max) {
+    const budget = Math.max(8, max || 72);
+    const n = Math.max(1, len || 1);
+    // 出错片段本身也可能长得离谱（整串粘进来的数字、一长串下划线标识符）：
+    // 先把它自己截到半个预算，剩下的留给上下文，两条线才都不会超出框宽。
+    const raw = expr.slice(pos, pos + n);
+    const badMax = Math.max(4, Math.floor(budget / 2));
+    const cut = raw.length > badMax;
+    const bad = (cut ? raw.slice(0, badMax) : raw) + (cut ? '…' : '');
+    const marked = Math.max(1, bad.length);
+    // 减去 2 是给两头的 … 留坐位：它们也是要占一格的真字符，
+    // 不先扣掉的话，"左边截断"时 head 恰好比预算多出那个 … 的长度。
+    const room = Math.max(0, budget - marked - 2);
+    // 先按左右各一半取上下文，哪边到头了就把余量让给另一边
+    let start = Math.max(0, pos - Math.floor(room / 2));
+    let end = Math.min(expr.length, start + room + n);
+    start = Math.max(0, end - room - n);
+    const head = (start > 0 ? '…' : '') + expr.slice(start, pos);
+    const tail = expr.slice(pos + n, end) + (end < expr.length ? '…' : '');
+    return { head: head, bad: bad, badWidth: marked, tail: tail };
+  }
+
   function showError(message, pos, len, expr) {
     errorText.textContent = message;
     errorCaret.textContent = '';
 
     if (typeof pos === 'number' && pos >= 0 && pos <= expr.length) {
-      const n = Math.max(1, len || 1);
-      const before = expr.slice(0, pos);
-      const bad = expr.slice(pos, pos + n);
-      const after = expr.slice(pos + n);
+      const w = caretWindow(expr, pos, len, 72);
 
       // 用等宽字体对齐：第一行标出出错片段，第二行用 ^ 指到它下面
       const line1 = document.createElement('span');
-      line1.append(before);
+      line1.append(w.head);
       const mark = document.createElement('span');
       mark.className = 'bad';
-      mark.textContent = bad;
-      line1.append(mark, after);
+      mark.textContent = w.bad;
+      line1.append(mark, w.tail);
 
       const line2 = document.createElement('span');
-      line2.textContent = ' '.repeat(pos) + '^'.repeat(Math.max(1, bad.length));
+      line2.textContent = ' '.repeat(w.head.length) + '^'.repeat(w.badWidth);
 
       errorCaret.append(line1, document.createTextNode('\n'), line2);
     }
-    errorBox.hidden = false;
+    errorBox.classList.remove('is-empty');
   }
 
+  // 注意：这里不是把错误框藏掉（那样错误一来一去就会推动键盘），
+  // 而是标记成空 —— 位置照样占着（高度见 style.css 的 --error-slot），
+  // 只把内容清空不让它显示出来。
   function hideError() {
-    errorBox.hidden = true;
+    errorText.textContent = '';
+    errorCaret.textContent = '';
+    errorBox.classList.add('is-empty');
   }
 
   // ------------------------------------------------- 程序员模式进制面板 ----
@@ -552,9 +588,9 @@
     if (hint) {
       if (!QWORD_OK()) {
         hint.className = 'prog-hint warn';
+        // 文案压在一行内：提示区高度是写死的（见 style.css），换行会被裁掉
         hint.textContent =
-          '注意：本平台不支持 64 位（QWORD）整数运算 —— 引擎以 double 为数值类型，' +
-          '只能精确表示 2^53−1 以内的整数。请使用 BYTE / WORD / DWORD。';
+          '本平台引擎是 double，不支持 QWORD：只能精确表示 2^53−1 以内的整数，请用 BYTE/WORD/DWORD。';
       } else if (state.base === 'bin' || state.base === 'oct') {
         hint.className = 'prog-hint';
         const maxDigits = maxDigitsForBase(state.base);
@@ -762,7 +798,7 @@
 
   // 供 Node 下的单元测试使用（浏览器里没有 module，这段不会执行）。
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { digitsToHex, literalText, maxDigitsForBase, errorIsPending };
+    module.exports = { digitsToHex, literalText, maxDigitsForBase, errorIsPending, caretWindow };
   }
 
   document.addEventListener('DOMContentLoaded', init);

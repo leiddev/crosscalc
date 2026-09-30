@@ -55,8 +55,11 @@
         </div>
       </div>
 
-      <!-- 错误提示：中文友好提示 + 出错位置定位 -->
-      <div id="error-box" class="error-box" hidden>
+      <!-- 错误提示：中文友好提示 + 出错位置定位。
+           这块地方的高度是**固定**的（见 style.css 的 --error-slot）：没出错时用
+           is-empty 藏起来但仍占位，出错时直接把内容填进去。
+           否则错误一出现就会把下面的键盘整体往下推，正打字的时候体验很糟。 -->
+      <div id="error-box" class="error-box is-empty">
         <div class="error-head">
           <span class="error-icon" aria-hidden="true">!</span>
           <pre id="error-text" class="error-text"></pre>
