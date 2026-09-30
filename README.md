@@ -244,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–23。
+换成计算器后又踩到 13–24。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -407,6 +407,17 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     "清零 `C`"两个同名键的歧义去掉了。
     这条约束由 `tests/check_frontend.py` 的 `check_key_labels()` 守着
     （任何非数字键用单个 `0-9/A-F` 当标签都会报错）。见[设计决策 §17](docs/design-decisions.md)。
+
+24. **科学模式的一行里，函数块和数字块要【并排】，不能竖着堆**：科学模式用
+    `SPLIT` 把一行切成"左边函数键 | 右边数字键"。原来块内是 `flex-direction: column`，
+    一行里竖着堆 4 个键；科学模式有 6 行，等于要 24 个键的高度——每个键被压成
+    **14px**、字糊在一起，行与行还互相盖住（`asin` 压着 `π`），`calc` 内容 653px
+    溢出可视 640px。键盘排版"乱"就是这么来的，而且**第一版就在**，不是改
+    `.kp-row` 的 `flex`/`min-height` 引入的。现在块内改成 `row`：一行 = `sin cos tan π | 7 8 9 ÷`，
+    整行就是一格键的高度，6 行铺满，每键 94×66 无裁切。两块之间由
+    `.kp-row.sci-split { gap: 14px }` 留更宽的缝（这个类要 `renderKeypads()` 主动加上，
+    光写 CSS 不加类等于没有）。`check_frontend.py` 钉住"`.kp-group` 必须是 row"。
+    见[设计决策 §18](docs/design-decisions.md)。
 
 ## 如何发版
 

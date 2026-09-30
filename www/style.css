@@ -302,9 +302,23 @@ body {
   min-height: 40px;
 }
 
-.kp-row.sci-split { gap: var(--gap); }
-.kp-col { display: flex; flex-direction: column; gap: var(--gap); flex: 1 1 0; min-width: 0; }
-.kp-col.fn-col { flex: 1.55 1 0; }
+/* 科学模式的行：左边函数块、右边数字块，两块之间留一道更宽的缝把两者分开。
+   缝比键与键之间的 --gap 大一档，是为了让"函数 | 数字"这两组一眼能分开。 */
+.kp-row.sci-split { gap: 14px; }
+
+/* 科学模式行里的"块"（app.js 里由 SPLIT 标记切出来的两半）。
+   注意这里是 flex-direction: row —— 块内横向铺开，每个键占一格宽。
+   曾经这里是 column（键竖着堆）：一行要塞下 4 个键的高度，而科学模式有 6 行，
+   等于要 24 个键的高度，结果每个键被压成 14px、字全糊在一起，而且行与行
+   还会互相盖住（行的盒子只有一格高，里面的键却溢出到下一行）——这就是
+   "科学模式按键排版混乱"的成因。竖排的坑已记在 docs/design-decisions.md。 */
+.kp-group {
+  display: flex;
+  flex-direction: row;
+  gap: var(--gap);
+  flex: 1 1 0;
+  min-width: 0;
+}
 
 .kp-key {
   flex: 1 1 0;

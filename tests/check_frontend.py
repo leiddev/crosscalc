@@ -359,6 +359,26 @@ def check_layout_anchors(fail, html, js, css, verbose):
     fail.check(rows is not None and "min-height" in rows,
                ".kp-row 需要 min-height：行高被压扁后按键上的字符就看不清了")
 
+    # 科学模式的行由 SPLIT 切成"函数块 | 数字块"两半，两块必须【并排】摆在一行里。
+    # 曾经两块是竖着堆的（flex-direction: column）：一行要塞下 4 个键的高度，
+    # 而科学模式有 6 行 = 24 个键的高度，每个键被压成 14px、字全糊在一起，行与行
+    # 之间还互相盖住。这就是"科学模式按键排版混乱"的成因。
+    group = css_rule(css, ".kp-group")
+    fail.check(group is not None, "style.css 缺少 .kp-group 规则（科学模式行里的函数块/数字块）")
+    if group:
+        direction = re.search(r"flex-direction\s*:\s*([a-z-]+)", group)
+        fail.check(direction is not None and direction.group(1) == "row",
+                   ".kp-group 必须是 flex-direction: row：科学模式一行里的函数键/数字键"
+                   "要并排铺开，竖着堆会把每行撑成 4 个键的高度，按键被压得看不清")
+    fail.check(re.search(r"\.kp-col\b|\.fn-col\b", css) is None,
+               "style.css 里不该再有 .kp-col / .fn-col（竖排版本的旧选择器）")
+    fail.check(".kp-group" in js,
+               "app.js 里应当用 .kp-group 装 SPLIT 切出来的两半按键")
+    fail.check(re.search(r"sci-split", js) is not None and
+               re.search(r"\.kp-row\.sci-split\s*\{[^}]*gap", css) is not None,
+               "带 SPLIT 的行要加上 sci-split 类，并由 .kp-row.sci-split 给两块之间"
+               "留一道更宽的缝，否则函数键和数字键会连成一片分不出来")
+
     # 进制读数一种一行（hex / dec / oct / bin 各占一行）。
     # 曾经为了省 50px 高度把它们压成两行（hex/dec/oct 并排），结果四种读数互相
     # 抢宽度——bin 的 32 位串被挤得要左右滚。空间该从空白里省，不该从读数里省。
@@ -382,7 +402,8 @@ def check_layout_anchors(fail, html, js, css, verbose):
                f"app.js 里又出现了常驻的平台限制提示 {stale}："
                "这类消息不该占着提示区（放按钮 title、把按钮置灰就够）")
 
-    fail.info("布局约定检查完成（错误区固定高度 + 键盘不被压缩 + 四行进制读数）", verbose)
+    fail.info("布局约定检查完成（错误区固定高度 + 键盘不被压缩 + 四行进制读数 + 科学模式并排）",
+              verbose)
 
 
 # ---------------------------------------------------------------------- 主流程 --

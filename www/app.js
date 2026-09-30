@@ -187,23 +187,25 @@
     const host = $('#keypads');
     host.innerHTML = '';
     const rows = KEYPADS[state.mode];
-    const isSci = state.mode === 'scientific';
 
     for (const row of rows) {
       const rowEl = document.createElement('div');
       rowEl.className = 'kp-row';
 
-      // 科学模式：一行里分成"函数列"和"数字列"，用 SPLIT 标记分隔
+      // 科学模式：一行分成左右两块（函数块 | 数字块），用 SPLIT 标记分隔。
+      // 两块是【并排】的，不是上下堆叠——每块里的键各占一格宽度，
+      // 所以整行的高度就是一格键的高度。见 style.css 的 .kp-group 注释。
       const splitAt = row.indexOf('SPLIT');
       const groups = splitAt >= 0
         ? [row.slice(0, splitAt), row.slice(splitAt + 1)]
         : [row];
+      if (groups.length > 1) rowEl.className = 'kp-row sci-split';
 
       for (let gi = 0; gi < groups.length; gi++) {
         let container = rowEl;
         if (groups.length > 1) {
           container = document.createElement('div');
-          container.className = 'kp-col' + (gi === 0 ? ' fn-col' : '');
+          container.className = 'kp-group';
           rowEl.appendChild(container);
         }
         for (const key of groups[gi]) {
@@ -212,7 +214,6 @@
       }
       host.appendChild(rowEl);
     }
-    if (isSci) { /* 科学模式的说明在 HTML 里 */ }
   }
 
   function buildKey(key) {
