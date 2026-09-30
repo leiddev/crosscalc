@@ -244,7 +244,7 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
 ## 需要注意的几个坑（都实测踩过）
 
 外壳部分（坑 1–12）来自 [webview-httplib-demo](https://github.com/leiddev/webview-httplib-demo)，
-换成计算器后又踩到 13–21。
+换成计算器后又踩到 13–23。
 
 1. **webview 0.12 里 C API 和 C++ API 是并存的，别信“C++ API 已被移除”的说法。**
    `core/include/webview/webview.h` 里**搜不到 `class webview`**，
@@ -388,6 +388,25 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=2%2B"
     间距、`.display`/`.base-row` 内边距），**不该缩字号**，也不该把四行读数压回两行。
     这几条都是纯 CSS 约定、单测碰不到，所以由 `tests/check_frontend.py` 静态钉住。
     细节见[设计决策 §15](docs/design-decisions.md)。
+
+22. **前端是编译进 exe 的，改完 `www/` 必须重新编译**：`www/` 里的三个文件由
+    cpp-embedlib 在**构建期**转成 `_data_*.cpp` 再链进 `crosscalc.exe`，运行时
+    直接从内存里读。所以只改 `www/`、不跑 `cmake --build`，你打开的 exe 里还是
+    旧界面——"改了没反应"十有八九是这个，而不是代码没生效。
+    更坑的是**验证方式**：`ctest`/`e2e_api.py` 都不碰前端，而用来量布局的
+    headless 脚本是从**磁盘**上的 `www/` 取页面的，它永远不会替你发现 exe 里的
+    那份是旧的。要确认 exe 真的更新了，就起 `--headless` 后 `GET /app.js`
+    跟磁盘上的文件比一比（一致才算数）。见[设计决策 §16](docs/design-decisions.md)。
+
+23. **按键的上进制判断是按【标签】做的，标签不能撞上数字表**：`buildKey()` 里
+    "这个键在当前进制下能不能用"读的是 `key.label`——只要标签长得像单个
+    `0-9`/`A-F`，就会被当成十六进制数字送去和进制比较。清零键原来叫 `C`，
+    于是被当成数字 12，在 `DEC/OCT/BIN`（以及 `base` 固定为 `dec` 的标准/科学模式）
+    下全灰、点不动，用户只能来问"这个键是干嘛的"。现在清零键叫 **`AC`**：
+    两个字符天然不参与这个判断，顺带也把程序员模式里"十六进制数字 `C`"和
+    "清零 `C`"两个同名键的歧义去掉了。
+    这条约束由 `tests/check_frontend.py` 的 `check_key_labels()` 守着
+    （任何非数字键用单个 `0-9/A-F` 当标签都会报错）。见[设计决策 §17](docs/design-decisions.md)。
 
 ## 如何发版
 

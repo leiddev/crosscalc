@@ -427,6 +427,43 @@ def run_js_unit_tests(fail, verbose):
     return passed
 
 
+def check_key_labels(fail, js, verbose):
+    """按键标签的硬约束：单个 0-9/A-F 字符只能是"数字键"本身。
+
+    buildKey() 判断"这个键在当前进制下能不能用"时读的是 key.label——只要标签
+    长得像十六进制数字，就会被送去和进制比较。所以任何**非数字**的键都不能用
+    单个 0-9/A-F 当标签，否则它会在 HEX 以外的进制下被一起禁用。
+
+    这条约束是踩出来的：清零键原来叫 `C`，于是被当成数字 12，在 DEC/OCT/BIN
+    （以及 base 固定为 dec 的标准/科学模式）里全灰、点不动，用户只能来问
+    "这个键是干嘛的"。现在清零键叫 `AC`。
+    """
+    pairs = re.findall(r"k\(\s*'([^']*)'\s*,\s*'([^']*)'", js)
+    fail.check(len(pairs) > 50, f"app.js 里应当能扫出 50 个以上的按键定义（实际 {len(pairs)}）")
+
+    bad = []
+    for label, insert in pairs:
+        if len(label) == 1 and label in "0123456789ABCDEF":
+            # 合法的数字键：insert 就是它自己，或是十六进制数字键的 digitA..digitF
+            if insert != label and insert != "digit" + label:
+                bad.append(f"{label}（insert={insert}）")
+    fail.check(not bad,
+               f"这些键的标签是单个 0-9/A-F，却不是数字键 {bad}："
+               "它们会被按键的进制可用性判断当成数字，在部分进制下被误禁用")
+
+    # 反面：十六进制数字键必须老老实实用单个 A-F
+    hexdigits = [lb for lb, ins in pairs if ins.startswith("digit")]
+    fail.check(sorted(hexdigits) == list("ABCDEF"),
+               f"十六进制数字键应当正好是 A-F 六个（实际 {sorted(hexdigits)}）")
+
+    # 清零键叫 AC 不叫 C（原因见上）
+    clears = [lb for lb, ins in pairs if ins == "clear"]
+    fail.check(clears and all(lb == "AC" for lb in clears),
+               f"清零键的标签应当是 AC（实际 {clears}）：用单个 C 会被当成十六进制数字 12")
+
+    fail.info("按键标签约束检查完成（非数字键不得使用单个 0-9/A-F 标签）", verbose)
+
+
 def main():
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -461,6 +498,7 @@ def main():
     check_wordsizes(fail, html, js, args.verbose)
     check_contracts(fail, js, args.verbose)
     check_layout_anchors(fail, html, js, css, args.verbose)
+    check_key_labels(fail, js, args.verbose)
 
     ok = run_js_unit_tests(fail, args.verbose)
 

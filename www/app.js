@@ -59,6 +59,10 @@
   // insert 可以是字符串，也可以是 (s) => string（用于随字长变化的按键）
   const QWORD_OK = () => state.platform.supports_64bit;
 
+  // 清零键的标签是 `AC` 而不是 `C`，两个原因，改回去之前先看 buildKey() 那段注释：
+  //   1. 按键的进制可用性是按【标签】判断的，单个 `C` 会被当成十六进制数字 12，
+  //      于是清零键在 HEX 以外的进制（含标准/科学模式）里全灰、点不动；
+  //   2. 程序员模式第一行本来就有一个十六进制数字键 `C`，两个 C 并存本来就容易看混。
   const bitFunc = (name) => () => {
     // 字长为 8/16/32/64 时分别用 BITNOT8/BITNOT16/... ，
     // 这样"字长"选择器对按位取反与循环移位是真的生效的（而不是只影响显示）。
@@ -67,7 +71,7 @@
 
   const KEYPADS = {
     standard: [
-      [k('C', 'clear', 'util'), k('⌫', 'backspace', 'util'), k('(', '('), k(')', ')'), k('mod', 'mod(', 'fn')],
+      [k('AC', 'clear', 'util'), k('⌫', 'backspace', 'util'), k('(', '('), k(')', ')'), k('mod', 'mod(', 'fn')],
       [k('7', '7'), k('8', '8'), k('9', '9'), k('÷', '/', 'op'), k('x²', 'sqr(', 'fn')],
       [k('4', '4'), k('5', '5'), k('6', '6'), k('×', '*', 'op'), k('√', 'sqrt(', 'fn')],
       [k('1', '1'), k('2', '2'), k('3', '3'), k('−', '-', 'op'), k('xʸ', '^', 'op')],
@@ -83,7 +87,7 @@
       [k('ln', 'ln(', 'fn'), k('log₁₀', 'log10(', 'fn'), k('eˣ', 'exp(', 'fn'), k('mod', 'mod(', 'fn'), 'SPLIT',
        k('±', 'negate', 'util'), k('0', '0'), k('.', '.'), k('+', '+', 'op')],
       [k('x²', 'sqr(', 'fn'), k('√', 'sqrt(', 'fn'), k('xʸ', '^', 'op'), k('n!', 'fac(', 'fn'), 'SPLIT',
-       k('C', 'clear', 'util'), k('⌫', 'backspace', 'util'), k('(', '('), k(')', ')')],
+       k('AC', 'clear', 'util'), k('⌫', 'backspace', 'util'), k('(', '('), k(')', ')')],
       [k('nCr', 'combin(', 'fn'), k('nPr', 'permut(', 'fn'), k('Γ', 'tgamma(', 'fn'), k('atan2', 'atan2(', 'fn'), 'SPLIT',
        k('=', 'equals', 'eq', 4)],
     ],
@@ -94,7 +98,7 @@
       [k('ROL', bitFunc('bitlrotate'), 'fn'), k('ROR', bitFunc('bitrrotate'), 'fn'),
        k('+', '+', 'op'), k('−', '-', 'op'), k('×', '*', 'op'), k('÷', '/', 'op')],
       [k('7', '7'), k('8', '8'), k('9', '9'), k('(', '('), k(')', ')'), k('⌫', 'backspace', 'util')],
-      [k('4', '4'), k('5', '5'), k('6', '6'), k('C', 'clear', 'util'), k('mod', 'mod(', 'fn'), k('~', '~', 'op')],
+      [k('4', '4'), k('5', '5'), k('6', '6'), k('AC', 'clear', 'util'), k('mod', 'mod(', 'fn'), k('~', '~', 'op')],
       [k('1', '1'), k('2', '2'), k('3', '3'), k('0', '0'), k('.', '.'), k('=', 'equals', 'eq')],
     ],
   };
@@ -218,7 +222,15 @@
     btn.textContent = key.label;
     if (key.span > 1) btn.style.flexGrow = String(key.span);
 
-    // 禁用当前进制下非法的数字键
+    // 禁用当前进制下非法的数字键（比如 DEC 下的 A-F）。
+    //
+    // 这里按【标签】判断，所以有一条硬约束：**除了 0-9 / A-F 的数字键之外，
+    // 任何键的标签都不许是单个 0-9/A-F 字符**。否则它会被当成数字一起禁用。
+    // 清零键曾经就叫 `C`，于是被当成数字 12，在 DEC/OCT/BIN 下（以及 base 固定为
+    // dec 的标准/科学模式）全灰——用户点不动，只能问"这个键是干嘛的"。
+    // 现在清零键叫 `AC`（两个字符，天然不参与这个判断），顺带也把程序员模式里
+    // "十六进制数字 C"和"清零 C"两个同名键的歧义去掉了。
+    // tests/check_frontend.py 的 check_key_labels() 会盯着这条约束。
     const label = key.label;
     if (label.length === 1 && DIGIT_VALUE[label] !== undefined && !digitAllowed(label)) {
       btn.disabled = true;
