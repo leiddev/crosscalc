@@ -125,10 +125,16 @@ TEST_CASE("标准模式.比较与条件") {
 }
 
 TEST_CASE("标准模式.数值显示格式") {
-    // 显示采用"最短且能唯一还原该 double"的精度：
-    // 0.1+0.2 的真实结果是 0.30000000000000004，如实显示而不是抹成 0.3，
-    // 避免让用户以为得到的是一个不精确的结果。
-    expect_display("0.1+0.2", "0.30000000000000004");
+    // 显示采用"最短且能唯一还原该结果"的精度，如实显示而不做美化。
+    // 具体显示几位取决于引擎的运算精度（见 docs/design-decisions.md 第 3 条）：
+    //   * double 平台：0.1 与 0.2 的表示误差不会抵消，结果是 0.30000000000000004；
+    //   * 80 位扩展精度平台：误差在更高精度里抵消，舍入回 17 位正好是 0.3。
+    // 两者都是各自平台的正确答案，所以两条分支都要断言，不能只留一边。
+    if (crosscalc::Engine::supports_64bit()) {
+        expect_display("0.1+0.2", "0.3");
+    } else {
+        expect_display("0.1+0.2", "0.30000000000000004");
+    }
     expect_display("1.5+1.5", "3");
     expect_display("0-0", "0");
     expect_display("1000000*1000000", "1000000000000");
@@ -145,10 +151,18 @@ TEST_CASE("科学模式.三角与反三角") {
     expect_display("tan(0)", "0");
     expect_display("sin(pi/2)", "1");
     expect_display("cos(pi)", "-1");
-    expect_display("cot(pi/4)", "1.0000000000000002");
+    // cot(pi/4) 与 sin(pi/6) 的"零头"同样取决于运算精度：pi/4 不是精确定点值，
+    // double 下余下 1.0000000000000002 / 0.49999999999999994，
+    // 80 位扩展精度下舍入回 17 位恰好是 1 / 0.5。
+    if (crosscalc::Engine::supports_64bit()) {
+        expect_display("cot(pi/4)", "1");
+        expect_display("sin(pi/6)", "0.5");
+    } else {
+        expect_display("cot(pi/4)", "1.0000000000000002");
+        expect_display("sin(pi/6)", "0.49999999999999994");
+    }
     expect_display("asin(0)", "0");
     expect_display("atan2(1,1)", "0.7853981633974483");
-    expect_display("sin(pi/6)", "0.49999999999999994");
 }
 
 TEST_CASE("科学模式.对数与指数") {
@@ -422,9 +436,16 @@ TEST_CASE("引擎能力.平台精度信息自洽") {
     CHECK(info.max_integer > 0);
     // 库的按位运算上限固定为 2^48-1
     CHECK_NEAR(info.max_bitops_value, 281474976710655.0, 1.0);
-    // 不精确支持 64 位时，整数位数必然小于 64
-    if (!info.supports_64bit) {
+    if (info.supports_64bit) {
+        // 用 TE_LONG_DOUBLE 构建的平台（x86-64 的 Linux/macOS）：80 位扩展精度
+        // 的尾数是 64 位，所以最大精确整数就是 2^64-1。
+        CHECK_EQ(info.max_integer_bitness, 64);
+        CHECK(info.max_integer >= 18446744073709551615.0L);  // 2^64-1
+    } else {
+        // MSVC 的 long double 与 double 同宽，只有 53 位尾数
         CHECK(info.max_integer_bitness < 64);
+        CHECK_EQ(info.max_integer_bitness, 53);
+        CHECK(info.max_integer >= 9007199254740991.0L);  // 2^53-1
     }
 }
 
@@ -518,6 +539,35 @@ TEST_CASE("格式化.程序员模式十进制按有符号显示") {
              std::string("1111 1111"));
     CHECK_EQ(crosscalc::format_programmer(2.5, NumBase::Hex, WordSize::Bits32),
              std::string("2.5"));
+}
+
+TEST_CASE("格式化.超出位模式范围的值不做位截断") {
+    // 1e30 是整数，但装不进 64 位位模式。以前 is_integral_value() 会返回 true，
+    // 接着 static_cast<uint64_t>(1e30) 是未定义行为（实测会得到一个无意义的位型）。
+    // 现在应改判为"不能按位显示"，退化成十进制一般显示。
+    CHECK_FALSE(crosscalc::is_integral_value(1e30L));
+    CHECK_FALSE(crosscalc::is_integral_value(-1e30L));
+    CHECK_FALSE(crosscalc::is_integral_value(
+        std::numeric_limits<long double>::infinity()));
+    CHECK_FALSE(crosscalc::is_integral_value(
+        std::numeric_limits<long double>::quiet_NaN()));
+    CHECK(crosscalc::is_integral_value(255.0L));
+    CHECK(crosscalc::is_integral_value(-1.0L));
+    CHECK_FALSE(crosscalc::is_integral_value(2.5L));
+
+    // 边界：2^64-1 可按位显示，2^64 不能。
+    // 前半条只在对 64 位整数精确的平台上成立：Windows 的 long double 就是
+    // double，字面量 18446744073709551615.0L 会先被舍入成 2^64，
+    // 语义上已经不是"2^64-1"了。2^64 本身在两个平台上都能精确表示。
+    if (crosscalc::Engine::supports_64bit()) {
+        CHECK(crosscalc::is_integral_value(18446744073709551615.0L));
+    }
+    CHECK_FALSE(crosscalc::is_integral_value(18446744073709551616.0L));
+
+    // 不能按位显示时，格式化为十进制而不是乱码
+    const std::string big =
+        crosscalc::format_programmer(1e30L, NumBase::Hex, WordSize::Bits64);
+    CHECK_CONTAINS(big, "e+30");
 }
 
 // ===========================================================================

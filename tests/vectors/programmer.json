@@ -89,6 +89,13 @@
     { "expr": "bitlrotate64(1,32)", "base": "hex", "wordsize": "64", "requires_64bit": true, "expect": "100000000" },
     { "expr": "bitrrotate64(1,1)", "base": "hex", "wordsize": "64", "requires_64bit": true, "expect": "8000000000000000" },
     { "expr": "1<<62", "base": "hex", "wordsize": "64", "requires_64bit": true, "expect": "4000000000000000" },
-    { "expr": "bin2dec(\"111111111111111111111111111111111111111111111111111111111111111\")", "base": "hex", "wordsize": "64", "requires_64bit": true, "expect": "7FFFFFFFFFFFFFFF", "note": "HEX2DEC/BIN2DEC 上限为 INT64_MAX" }
+
+    { "expr": "bin2dec(\"101\")", "expect": "5", "note": "库的 BIN2DEC 只能处理短数字" },
+    { "expr": "bin2dec(\"1111111111\")", "expect": "-1", "note": "正好 10 位时按【有符号 10 位】解释，所以 10 个 1 是 -1 而不是 1023" },
+    { "expr": "oct2dec(\"777\")", "expect": "511" },
+    { "expr": "hex2dec(\"FFFFFFFF\") == 4294967295", "expect": "1", "note": "位数不足 10 时按无符号解释；用等式判断以免被字长掩码影响" },
+    { "expr": "hex2dec(\"FFFFFFFFFF\")", "expect": "-1", "note": "正好 10 位时按【有符号 40 位】解释，10 个 F 是 -1" },
+    { "expr": "hex2dec(\"ZZ\")", "expect_error": true, "error_contains": "进制转换失败", "note": "非法十六进制数字 -> 库静默返回 NaN，由本项目翻译成中文提示" },
+    { "expr": "hex2dec(\"12345678901\")", "expect_error": true, "error_contains": "超过上限", "note": "11 位超过库的 10 位上限" }
   ]
 }

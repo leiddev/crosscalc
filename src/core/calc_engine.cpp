@@ -14,6 +14,13 @@
 #include "tinyexpr.h"
 
 namespace crosscalc {
+
+// num_t 必须能无损承载 tinyexpr++ 的 te_type，否则计算精度会在进入显示层之前
+// 就被截掉（见 number_format.h 与 docs/design-decisions.md 第 3 条）。
+// te_type 只可能是 double 或 long double，而 num_t 就是 long double，
+// 这个 static_assert 是为了挡住"把 num_t 改成 double/float"这类改动。
+static_assert(sizeof(num_t) >= sizeof(te_type),
+              "num_t 必须能无损承载 te_type（不能窄化，否则 64 位结果会被舍入）");
 namespace {
 
 /// 整个 token 是否只由十六进制数字组成（用于给出"请加 0x 前缀"的提示）
@@ -55,15 +62,17 @@ PlatformInfo Engine::platform_info() {
     PlatformInfo info;
     info.supports_64bit = te_parser::supports_64bit();
     info.max_integer_bitness = te_parser::get_max_integer_bitness();
-    info.max_integer = static_cast<double>(te_parser::get_max_integer());
-    info.max_bitops_value = static_cast<double>(te_parser::MAX_BITOPS_VAL);
+    // 不做窄化转换：在支持 TE_LONG_DOUBLE 的平台上 get_max_integer() 是
+    // 2^64−1，转成 double 会变成 2^64（3.6e19 已经超出 double 的整数精度）。
+    info.max_integer = te_parser::get_max_integer();
+    info.max_bitops_value = static_cast<num_t>(te_parser::MAX_BITOPS_VAL);
     return info;
 }
 
 bool Engine::supports_64bit() { return te_parser::supports_64bit(); }
 
-double Engine::max_bitops_value() {
-    return static_cast<double>(te_parser::MAX_BITOPS_VAL);
+num_t Engine::max_bitops_value() {
+    return static_cast<num_t>(te_parser::MAX_BITOPS_VAL);
 }
 
 std::string Engine::available_functions_text() {
@@ -150,7 +159,12 @@ EvalResult Engine::evaluate(const EvalRequest& req) const {
         return out;
     }
 
-    const double value = static_cast<double>(raw);
+    // 这里【不能】窄化成 double：te_type 在支持 TE_LONG_DOUBLE 的平台上就是
+    // num_t（80 位扩展精度）。一旦转成 double，64 位的位运算结果会在进入显示层
+    // 之前就被舍入 —— 例如 0xFFFFFFFFFFFFFFFF（2^64−1）会变成 2^64，
+    // 于是程序员模式显示成 18446744073709551616 而不是 FFFFFFFFFFFFFFFF。
+    // 计算全程用 num_t，只在最后"显示"这一步才按 double 精度收敛（见 number_format）。
+    const num_t value = static_cast<num_t>(raw);
 
     // ---- 形态 3：库返回 NaN 但认为"成功" ---------------------------------
     if (std::isnan(value)) {

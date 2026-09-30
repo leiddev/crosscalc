@@ -40,7 +40,7 @@ public:
     static std::string available_functions_text();
 
     /// 库支持的按位运算最大数值（2^48−1）。
-    static double max_bitops_value();
+    static num_t max_bitops_value();
 };
 
 }  // namespace crosscalc

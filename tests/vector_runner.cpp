@@ -104,7 +104,7 @@ int run_vector_files(const std::vector<std::string>& files) {
                 continue;
             }
 
-            // 平台能力门控：需要 64 位精确整数的用例，在不支持的平台上跳过
+            // 平台能力门控 ①：需要 64 位精确整数的用例，在不支持的平台上跳过
             const bool requires_64bit =
                 c.value("requires_64bit", false);
             if (requires_64bit && !crosscalc::Engine::supports_64bit()) {
@@ -112,6 +112,39 @@ int run_vector_files(const std::vector<std::string>& files) {
                 std::printf("  [跳过] %s （本平台不支持 64 位精确整数）\n",
                             label.c_str());
                 continue;
+            }
+
+            // 平台能力门控 ②：arith 指定"这条用例只在哪种运算精度下成立"。
+            //
+            //   "double"   = 引擎内部用 double 运算（Windows/MSVC，53 位尾数）
+            //   "extended" = 引擎内部用 80 位扩展精度（x86-64 的 Linux/macOS）
+            //
+            // 为什么需要它：运算精度不同会让【显示结果】真的不一样，而这并不是 bug。
+            // 最典型的是 0.1+0.2：
+            //   * double 下是 0.30000000000000004（二进制无法精确表示 0.1/0.2）；
+            //   * 80 位扩展精度下，两个加数的表示误差在更高精度里部分抵消，
+            //     舍入回 17 位有效数字反而正好是 0.3。
+            // 还有两个方向相反的溢出用例：1e999 超出 double 但没超出 long double，
+            // 1e9999 则两者都超出。
+            // 遇到这类用例就必须写明平台，否则在另一个平台上必然误报失败。
+            const std::string arith = get_string(c, "arith", "");
+            if (!arith.empty()) {
+                const bool wide = crosscalc::Engine::supports_64bit();
+                const bool want_wide = (arith == "extended");
+                const bool want_narrow = (arith == "double");
+                if (!want_wide && !want_narrow) {
+                    std::printf("  [失败] %s: arith 只能是 \"double\" 或 \"extended\"\n",
+                                label.c_str());
+                    ++xtest::g_failures;
+                    continue;
+                }
+                if ((want_wide && !wide) || (want_narrow && wide)) {
+                    ++skipped;
+                    std::printf("  [跳过] %s （只适用于 %s 运算精度的平台，本平台是 %s）\n",
+                                label.c_str(), arith.c_str(),
+                                wide ? "extended" : "double");
+                    continue;
+                }
             }
 
             crosscalc::EvalRequest req;

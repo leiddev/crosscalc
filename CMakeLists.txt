@@ -144,6 +144,53 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
+#  TE_LONG_DOUBLE —— 64 位精确整数（QWORD）的开关
+#
+#  tinyexpr++ 的内部数值类型 te_type 默认是 double，只能精确表示 2^53−1 以内的
+#  整数（te_parser::supports_64bit() 的实现就是
+#  numeric_limits<te_type>::digits >= 64）。定义为 TE_LONG_DOUBLE 后
+#  te_type 变成 long double：x86-64 上是 80 位扩展精度（64 位尾数），
+#  于是 8/16/32/64 位字长全都精确。
+#
+#  用"编译期试一下"来判断能不能放 64 位整数，而不是 sizeof(long double) 或平台名：
+#    * MSVC 上 sizeof(long double) == 8（就是 double），定义了白搭；
+#    * Apple Silicon 上 long double 也是 8 字节，同样没收益；
+#    * 更关键的是，光看 sizeof 并不等于"尾数有 64 位"（例如 x86 的 32 位
+#      long double 是 12 字节、尾数只有 64 位但另有对齐差异）。
+#  tinyexpr++ 自己的判断条件就是 numeric_limits<te_type>::digits >= 64，
+#  这里用同一个条件试编译，两边口径完全一致。
+#  （注意 CMAKE_CXX_SIZEOF_LONG_DOUBLE 在部分 CMake 版本/平台上并不存在，
+#   所以不能依赖它。）
+# ---------------------------------------------------------------------------
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("
+#include <limits>
+static_assert(std::numeric_limits<long double>::digits >= 64,
+              \"long double cannot hold 64-bit integers exactly\");
+int main() { return 0; }
+" CROSSCALC_LONG_DOUBLE_HOLDS_64BIT)
+#
+#  必须是 PUBLIC：TE_LONG_DOUBLE 会改变 tinyexpr.h 里 te_type 的定义，
+#  而 te_type 出现在 te_parser 的【公开接口】上（evaluate() 的返回值等）。
+#  如果只有 tinyexpr.cpp 带着这个宏、而 calc_engine.cpp 不带，两边对同一个
+#  函数的返回值类型理解不一致（long double vs double），就是 ODR 违反 +
+#  调用约定错乱，运行时结果不可预测。让所有消费者的宏定义与它保持一致，
+#  才能保证 ABI 统一。
+#
+#  影响：Windows 上 QWORD 会被明确拒绝（而不是给出被舍入的错误答案）；
+#  Linux/macOS(x86-64) 上 QWORD 可用。前端通过 /api/platform 的
+#  supports_64bit 拿到这个能力，据此禁用按钮。见 docs/design-decisions.md 第 3 条。
+# ---------------------------------------------------------------------------
+if(CROSSCALC_LONG_DOUBLE_HOLDS_64BIT)
+    target_compile_definitions(crosscalc_tinyexpr PUBLIC TE_LONG_DOUBLE)
+    set(CROSSCALC_64BIT_INTEGERS TRUE)
+    set(CROSSCALC_WIDE_TYPE "long double（尾数 >= 64 位，可精确装下 64 位整数）")
+else()
+    set(CROSSCALC_64BIT_INTEGERS FALSE)
+    set(CROSSCALC_WIDE_TYPE "double（long double 与它同宽，无法精确表示 64 位整数）")
+endif()
+
+# ---------------------------------------------------------------------------
 #  crosscalc_core —— 计算核心（纯逻辑，无 GUI / 无网络依赖）
 #  拆成独立静态库的意义：测试程序只链接它，不需要 GTK/WebKit/httplib，
 #  CI 里跑单测既快又不会有显示相关的不稳定因素。
@@ -155,7 +202,11 @@ add_library(crosscalc_core STATIC
     src/core/number_format.cpp)
 target_include_directories(crosscalc_core PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src")
-target_link_libraries(crosscalc_core PRIVATE crosscalc_tinyexpr)
+# 用 PUBLIC 链接：crosscalc_tinyexpr 会把 TE_LONG_DOUBLE（如果平台支持）
+# 和 tinyexpr.h 的 include 目录以 PUBLIC 的方式传出来，必须一路传到
+# crosscalc_core 和 crosscalc_tests，否则 te_type 的 ABI 会不一致 —— 见上方
+# TE_LONG_DOUBLE 一段的说明。
+target_link_libraries(crosscalc_core PUBLIC crosscalc_tinyexpr)
 # crosscalc_tinyexpr 是 PRIVATE 链接，但 tinyexpr.h 需要被 core 的公开头文件包含，
 # 所以 include 目录要以 PUBLIC 传出去。
 target_include_directories(crosscalc_core PUBLIC
@@ -243,15 +294,22 @@ endif()
 # ---------------------------------------------------------------------------
 if(WIN32)
     set(_run_hint "build\\Release\\crosscalc.exe")
+    set(_preset "x64")
 else()
-    set(_run_hint "build/crosscalc")
+    set(_run_hint "build-linux/crosscalc")
+    set(_preset "linux")
+endif()
+if(CROSSCALC_64BIT_INTEGERS)
+    set(_int_hint "${CROSSCALC_WIDE_TYPE}，QWORD(64 位字长) 可用")
+else()
+    set(_int_hint "${CROSSCALC_WIDE_TYPE}，最大精确到 2^53-1，QWORD 不可用")
 endif()
 message(STATUS "----------------------------------------------------------")
-message(STATUS " crosscalc 配置完成")
-message(STATUS "   平台     : ${CMAKE_SYSTEM_NAME}")
-message(STATUS "   生成器   : ${CMAKE_GENERATOR}")
-message(STATUS "   构建     : cmake --build build --config Release")
-message(STATUS "   测试     : ctest --test-dir build -C Release --output-on-failure")
+message(STATUS " crosscalc ${PROJECT_VERSION} 配置完成")
+message(STATUS "   平台     : ${CMAKE_SYSTEM_NAME}  (${CMAKE_GENERATOR})")
+message(STATUS "   构建     : cmake --build --preset <release|linux-release>")
+message(STATUS "   自测     : ctest --preset <windows-release|linux-release>")
 message(STATUS "   运行     : ${_run_hint}")
-message(STATUS "   整数精度 : ${CMAKE_CXX_COMPILER_ID}")
+message(STATUS "   整数精度 : ${_int_hint}")
+message(STATUS "   预设名   : ${_preset}")
 message(STATUS "----------------------------------------------------------")

@@ -21,7 +21,7 @@ namespace crosscalc {
 
 /// 按"最短且能唯一还原"的精度格式化一般数值（标准 / 科学模式用）。
 /// 处理 NaN / ±∞ / -0。
-std::string format_general(double v);
+std::string format_general(num_t v);
 
 /// 把无符号整数按指定进制渲染成字符串。
 /// @param group_binary 二进制时每 4 位加一个空格（便于数位）。
@@ -36,10 +36,11 @@ int64_t sign_extend(uint64_t v, WordSize ws);
 /// 程序员模式的显示：按进制与字长渲染。
 /// 非整数结果无法按位显示，此时退化为一般十进制显示。
 /// @note 数值会先被截断到字长范围内（Windows 计算器在 QWORD/DWORD 等
-///     字长下就是这个行为）。
-std::string format_programmer(double v, NumBase base, WordSize ws);
+///     字长下就是这个行为）。参数用 num_t 是为了让 64 位位模式在
+///     支持 TE_LONG_DOUBLE 的平台上能无损传到这里。
+std::string format_programmer(num_t v, NumBase base, WordSize ws);
 
-/// 数值是否为整数（在 double 可精确表达的范围内）。
-bool is_integral_value(double v);
+/// 数值是否为整数（在 num_t 可精确表达的范围内）。
+bool is_integral_value(num_t v);
 
 }  // namespace crosscalc

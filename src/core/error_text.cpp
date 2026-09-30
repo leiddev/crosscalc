@@ -5,12 +5,56 @@
 
 #include <algorithm>
 #include <cctype>
+#include <optional>
+#include <string>
 
 namespace crosscalc {
 namespace {
 
 bool contains(std::string_view haystack, std::string_view needle) {
     return haystack.find(needle) != std::string_view::npos;
+}
+
+/// HEX2DEC / BIN2DEC / OCT2DEC 允许的最大数字位数（读自 tinyexpr++ 源码）。
+constexpr std::size_t k_max_conversion_digits = 10;
+
+/// 取出表达式里第一个字符串字面量的内容（去掉两侧双引号）。
+/// 用来把 "BIN2DEC(\"123\")" 这种输入里的 "123" 抠出来，好把错误说得更具体。
+/// 找不到时返回 nullopt。
+std::optional<std::string_view> first_string_literal(std::string_view expr) {
+    const auto open = expr.find('"');
+    if (open == std::string_view::npos) {
+        return std::nullopt;
+    }
+    const auto close = expr.find('"', open + 1);
+    if (close == std::string_view::npos) {
+        // 只有开引号、没有闭引号：属于语法错误，这里按"没有参数"处理
+        return std::nullopt;
+    }
+    return expr.substr(open + 1, close - open - 1);
+}
+
+/// 把函数名写成人习惯的全大写形式：hex2dec -> HEX2DEC
+std::string fn_name_pretty(std::string_view fn) {
+    std::string out(fn);
+    for (char& c : out) {
+        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    }
+    return out;
+}
+
+/// 程序员模式下追加的写法提示。
+///
+/// 按位运算出错时最常见的两个原因是：把十六进制常量写成了裸的 `FF`（库不认识，
+/// 只有 `0xFF` 才认），以及以为 `&` / `|` 是按位运算（它们在本项目里始终是逻辑
+/// 运算，见 docs/design-decisions.md 第 2 条）。
+/// 其它模式返回空串，因此标准/科学模式的提示文案完全不受影响。
+std::string bitwise_mode_hint(Mode mode) {
+    if (mode != Mode::Programmer) {
+        return {};
+    }
+    return "\n提示：程序员模式下十六进制常量要写成 0x 前缀（如 0xFF）；"
+           "按位与/或/异或请用 BITAND() / BITOR() / BITXOR() 函数。";
 }
 
 bool is_ident_char(char c) {
@@ -194,29 +238,48 @@ std::string friendly_calc_error(std::string_view lib_message, Mode mode) {
     }
 
     // ---- 按位运算的参数类型/范围 ----
+    //
+    // 下面统一用 "先建 std::string 再 += 提示" 的写法，而不是 "字面量 + 提示"。
+    // 后者在 GCC 11 -O3 下会触发 -Wstringop-overflow 误报
+    // （char_traits.h: writing N bytes into a region of size M，SSO 缓冲被误判），
+    // 而 CI 的 ubuntu-22.04 正好是 GCC 11。
     if (contains(m, "Value is too large for bitwise NOT.")) {
-        return "数值超出按位取反（BITNOT）允许的范围。\n"
-               "本库的按位运算只接受 2^48−1 以内的整数。";
+        std::string out = "数值超出按位取反（BITNOT）允许的范围。\n"
+                          "本库的按位运算只接受 2^48−1 以内的整数。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "Value is too large for bitwise operation.")) {
-        return "数值超出按位运算允许的范围。\n"
-               "本库的按位运算只接受 2^48−1 以内的整数。";
+        std::string out = "数值超出按位运算允许的范围。\n"
+                          "本库的按位运算只接受 2^48−1 以内的整数。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "must use positive")) {
-        return "该按位运算的操作数必须是非负整数。";
+        std::string out = "该按位运算的操作数必须是非负整数。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "must use integers") || contains(m, "must be an integer")) {
-        return "该按位运算只能用于整数，请去掉小数部分。";
+        std::string out = "该按位运算只能用于整数，请去掉小数部分。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "cannot be negative")) {
-        return "该运算的操作数不能为负数。";
+        std::string out = "该运算的操作数不能为负数。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "Overflow in left shift")) {
-        return "左移溢出：被移位的数值太大。\n"
-               "建议：减小被移位的数，或使用更小的字长。";
+        std::string out = "左移溢出：被移位的数值太大。\n"
+                          "建议：减小被移位的数，或使用更小的字长。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "Rotation operation must be between")) {
-        return "循环移位的位数超出当前字长允许的范围。";
+        std::string out = "循环移位的位数超出当前字长允许的范围。";
+        out += bitwise_mode_hint(mode);
+        return out;
     }
     if (contains(m, "List and decimal separators cannot be the same")) {
         return "小数点与列表分隔符不能相同（内部配置错误）。";
@@ -324,23 +387,63 @@ std::string friendly_syntax_error(std::string_view lib_message, int pos,
 
 std::string friendly_invalid_result(std::string_view expr, Mode mode) {
     const std::string_view e = trim_view(expr);
-    // 以转换函数开头的输入，绝大多数是"字符串内容不是合法数字"
+
+    // 程序员模式下补一句"这个模式里该怎么写"，因为最容易踩的坑就是十六进制字面量
+    // 没有 0x 前缀（库不认识裸的 FF），以及把 & 当成按位与。
+    const std::string prog_hint =
+        (mode == Mode::Programmer)
+            ? "\n提示：十六进制常量要写成 0x 前缀（如 0xFF）；"
+              "按位与/或/异或请用 BITAND() / BITOR() / BITXOR() 函数。"
+            : std::string();
+
+    // 以转换函数开头的输入，绝大多数是"字符串内容不是合法数字"或"位数超限"。
+    //
+    // 这三个转换函数的真实行为（读自 tinyexpr++ 源码，见
+    // docs/design-decisions.md 第 11 条）都很反直觉，报错时必须讲清楚，
+    // 否则用户会以为是自己数字打错了：
+    //   * 参数最长 10 个字符，超了直接得到 NaN（不是抛异常）；
+    //   * 正好 10 个字符时按【有符号】解释：bin 是 10 位、oct 是 30 位、
+    //     hex 是 40 位。所以 BIN2DEC("1111111111") 是 -1 而不是 1023。
     static const char* kConverters[] = {"hex2dec", "bin2dec", "oct2dec",
                                         "numbervalue"};
     for (const char* fn : kConverters) {
-        if (e.size() >= std::char_traits<char>::length(fn) &&
-            std::equal(fn, fn + std::char_traits<char>::length(fn), e.begin(),
+        const std::size_t fn_len = std::char_traits<char>::length(fn);
+        if (e.size() >= fn_len &&
+            std::equal(fn, fn + fn_len, e.begin(),
                        [](char a, char b) {
                            return std::tolower(static_cast<unsigned char>(a)) ==
                                   std::tolower(static_cast<unsigned char>(b));
                        })) {
-            return std::string("进制转换失败：") + fn +
-                   "() 的参数不是该进制的合法数字，或参数个数不正确。\n"
-                   "例如 HEX2DEC(\"FF\") = 255；HEX2DEC(\"ZZ\") 不是合法输入。";
+            std::string out = std::string("进制转换失败：") + fn +
+                              "() 的参数无效（参数个数不正确，或含该进制不允许的数字）。\n";
+
+            // 能把参数里的字符串抠出来时，给出更具体的原因
+            if (const auto arg = first_string_literal(expr); arg.has_value()) {
+                if (arg->size() > k_max_conversion_digits) {
+                    out = std::string("进制转换失败：") + fn +
+                          "() 的参数有 " + std::to_string(arg->size()) +
+                          " 位数字，超过上限 " +
+                          std::to_string(k_max_conversion_digits) +
+                          " 位。\n本库的 HEX2DEC / BIN2DEC / OCT2DEC 最多处理 " +
+                          std::to_string(k_max_conversion_digits) +
+                          " 位数字；更长的数值请直接写成十六进制字面量"
+                          "（如 0x1234ABCD），字面量可以精确表示 64 位整数。";
+                    out += prog_hint;
+                    return out;
+                }
+                out = std::string("进制转换失败：\"") + std::string(*arg) +
+                      "\" 不是 " + fn_name_pretty(fn) + " 能识别的合法数字。\n"
+                      "例如 HEX2DEC(\"FF\") = 255；HEX2DEC(\"ZZ\") 不是合法输入。";
+            } else {
+                out += "例如 HEX2DEC(\"FF\") = 255；HEX2DEC(\"ZZ\") 不是合法输入。";
+            }
+            out += prog_hint;
+            return out;
         }
     }
-    (void)mode;
-    return "无法计算出有效结果（结果为 NaN）。\n请检查输入的数字格式是否正确。";
+    std::string out = "无法计算出有效结果（结果为 NaN）。\n请检查输入的数字格式是否正确。";
+    out += prog_hint;
+    return out;
 }
 
 }  // namespace crosscalc

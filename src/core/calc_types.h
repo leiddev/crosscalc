@@ -28,14 +28,28 @@ enum class NumBase : int {
     Hex = 16,
 };
 
+/// 引擎的宽数值类型，与 tinyexpr-plusplus 的 te_type 一一对应。
+///
+/// tinyexpr++ 的内部数值类型 te_type 默认是 double，只能精确表示 2^53−1 以内的
+/// 整数。CMakeLists 会在 long double 比 double 更宽的平台（x86-64 的 Linux/macOS）
+/// 上给 tinyexpr++ 定义 TE_LONG_DOUBLE，此时 te_type 就是 80 位扩展精度，
+/// 能精确装下 uint64_t。MSVC 的 long double 与 double 同宽，定义了也没用，
+/// 所以 Windows 上恒为 "53 位精确整数"。
+///
+/// 因此本项目全程用这个宽类型承载计算结果，而不是 double：否则 64 位的位运算
+/// 结果在存进 EvalResult 的那一瞬间就被舍入成 53 位了。
+/// QWORD 是否可用由 te_parser::supports_64bit() 在运行时决定，
+/// 见 Engine::supports_64bit()。
+///
+/// @note /api/eval 返回的 JSON 数字字段（value / max_integer）仍是 double 精度
+///       ——JSON 的数字本来就承载不了 64 位整数。程序员模式下要看精确值请用
+///       display 字符串（十六进制/二进制位模式）。
+using num_t = long double;
+
 /// 程序员模式的字长。
 ///
-/// 关于 64 位：tinyexpr-plusplus 的内部数值类型 te_type 默认是 double，
-/// 只能精确表示 2^53-1 以内的整数。只有把引擎编译成 TE_LONG_DOUBLE
-/// （Linux/macOS 上是 80 位扩展精度）才能精确表示 64 位整数。
-/// 因此 QWORD 是否可用由 te_parser::supports_64bit() 在运行时决定，
-/// 见 Engine::supports_64bit()。Windows/MSVC 的 long double 与 double
-/// 同宽，所以 Windows 上恒为"不支持 64 位精确整数"。
+/// 8 / 16 / 32 位在所有平台上都是精确的；64 位（QWORD）只在
+/// te_parser::supports_64bit() 为真的平台上开放，见上面的 num_t 说明。
 enum class WordSize : int {
     Bits8 = 8,
     Bits16 = 16,
@@ -54,7 +68,7 @@ struct EvalRequest {
 /// 一次求值结果。
 struct EvalResult {
     bool ok = false;         ///< 是否成功
-    double value = 0.0;      ///< 引擎给出的原始数值（成功时有意义）
+    num_t value = 0.0;       ///< 引擎给出的原始数值（成功时有意义）
     std::string display;     ///< 展示用字符串（按模式与进制格式化）
     std::string error;       ///< 中文友好错误提示（ok == false 时非空）
 
@@ -69,9 +83,9 @@ struct EvalResult {
 /// 运行期能力信息，供前端决定按钮可用性并给出解释。
 struct PlatformInfo {
     bool supports_64bit = false;  ///< te_type 能否精确容纳 uint64_t
-    int max_integer_bitness = 0;  ///< 精确整数位数（double 上为 53）
-    double max_integer = 0.0;     ///< 最大精确整数
-    double max_bitops_value = 0.0;///< 按位运算允许的最大数值（库限制 2^48-1）
+    int max_integer_bitness = 0;  ///< 精确整数位数（double 为 53，80 位 long double 为 64）
+    num_t max_integer = 0.0;      ///< 最大精确整数
+    num_t max_bitops_value = 0.0; ///< 按位运算允许的最大数值（库限制 2^48−1）
 };
 
 /// 引擎版本号（与 CMake 的 project(VERSION) 保持一致，由 CMake 注入）。

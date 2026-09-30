@@ -97,8 +97,9 @@ void print_platform_info() {
     std::printf("运行平台信息\n");
     std::printf("  精确支持 64 位整数   : %s\n", info.supports_64bit ? "是" : "否");
     std::printf("  精确整数位数         : %d bit\n", info.max_integer_bitness);
-    std::printf("  最大精确整数         : %.0f\n", info.max_integer);
-    std::printf("  按位运算最大数值     : %.0f (2^48−1)\n", info.max_bitops_value);
+    // %L 修饰符：num_t 是 long double，用 %f 是未定义行为
+    std::printf("  最大精确整数         : %.0Lf\n", info.max_integer);
+    std::printf("  按位运算最大数值     : %.0Lf (2^48−1)\n", info.max_bitops_value);
     std::printf("  引擎版本             : %s\n", CROSSCALC_VERSION);
 }
 
@@ -141,7 +142,10 @@ int eval_one(const crosscalc::EvalRequest& req, bool as_json) {
         std::printf("\"expression\":\"%s\",", json_escape(req.expression).c_str());
         if (r.ok) {
             std::printf("\"display\":\"%s\",", json_escape(r.display).c_str());
-            std::printf("\"value\":%.17g,", r.value);
+            // 显式窄化成 double 输出：JSON 的数字就是 double 精度，
+            // 精确结果看 display。%Lg 会把 long double 直接打印成 double 装不下的
+            // 位数，反而是"看起来精确"的假象。
+            std::printf("\"value\":%.17g,", static_cast<double>(r.value));
             std::printf("\"integral\":%s", r.integral ? "true" : "false");
         } else {
             std::printf("\"error\":\"%s\",", json_escape(r.error).c_str());

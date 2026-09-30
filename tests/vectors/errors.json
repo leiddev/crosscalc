@@ -58,7 +58,8 @@
     { "expr": "ln(0)", "expect_error": true, "error_contains": "" },
     { "expr": "ln(-1)", "expect_error": true, "error_contains": "" },
     { "expr": "tan(pi/2)", "expect_error": false, "note": "pi/2 无法被 double 精确表示，因此 tan(pi/2) 不是无穷大而是一个很大的有限值；这是 IEEE 754 的正常行为，不是错误" },
-    { "expr": "1e999", "expect_error": true, "error_contains": "" },
+    { "expr": "1e9999", "expect_error": true, "error_contains": "", "note": "超出 long double 的上限（约 1.19e4932），在两种运算精度下都溢出" },
+    { "expr": "1e999", "arith": "double", "expect_error": true, "error_contains": "", "note": "超出 double 上限但没超出 long double，只在 double 平台上算溢出" },
     { "expr": "5!", "expect_error": true, "error_contains": "", "note": "阶乘要写 FAC(5)" }
   ]
 }

@@ -164,6 +164,24 @@ def run_vectors(fail, port, files, supports_64bit, verbose):
                     print(f"    跳过 {label}（本平台不支持 64 位精确整数）")
                 continue
 
+            # arith 门控：用例只在指定运算精度下成立。
+            # "double"   = 引擎内部是 double（Windows/MSVC）
+            # "extended" = 引擎内部是 80 位扩展精度（x86-64 Linux/macOS）
+            # 与 vector_runner.cpp 里的处理必须保持一致，否则同一条用例
+            # 在 C++ 侧跳过、在 Python 侧却当失败计，两边结论就对不上了。
+            arith = case.get("arith", "")
+            if arith:
+                if arith not in ("double", "extended"):
+                    fail(f"{label}: arith 只能是 \"double\" 或 \"extended\"")
+                    continue
+                wide = supports_64bit
+                if (arith == "extended") != wide:
+                    skipped += 1
+                    if verbose:
+                        print(f"    跳过 {label}（只适用于 {arith} 运算精度，"
+                              f"本平台是 {'extended' if wide else 'double'}）")
+                    continue
+
             payload = {
                 "expression": expr,
                 "mode": case.get("mode", defaults.get("mode", "standard")),
@@ -290,6 +308,7 @@ def find_binary(explicit):
         REPO_ROOT / "build" / "crosscalc.exe",
         REPO_ROOT / "build" / "crosscalc",
         REPO_ROOT / "build" / "Debug" / "crosscalc.exe",
+        REPO_ROOT / "build-linux" / "crosscalc",
     ]
     for c in candidates:
         if c.is_file():
