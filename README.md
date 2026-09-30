@@ -86,7 +86,7 @@ crosscalc/
 ├─ tests/
 │  ├─ test_calc.cpp        单元测试（模式、错误、格式化、已知限制）
 │  ├─ vector_runner.cpp    黄金向量驱动器（读 JSON）
-│  ├─ vectors/*.json       318 条黄金向量（standard/scientific/programmer/errors）
+│  ├─ vectors/*.json       324 条黄金向量（standard/scientific/programmer/errors）
 │  ├─ e2e_api.py           端到端：真实进程 + 全部向量经 HTTP 回放
 │  ├─ check_frontend.py    前端 ↔ 引擎一致性（含 DOM id、函数名、/api 契约）
 │  ├─ js_frontend_test.js  app.js 纯函数单元测试（Node，与 BigInt 对照）
@@ -396,11 +396,11 @@ $ curl -s "http://127.0.0.1:18080/api/eval?expr=255&mode=programmer&base=hex"
 ## 已验证的环境
 
 **Windows**：Windows 10 22H2 x64 · VS2022 Community · MSVC 14.4x · CMake 3.31+
-`build\Release\crosscalc.exe` **766,976 字节**（编译 0 警告）
+`build\Release\crosscalc.exe` 本机 **766,976 字节**，CI（`windows-latest`）产物 **772,096 字节**（均为编译 0 警告）
 
 **Linux**：Ubuntu 22.04.1 LTS（无显示器）· GCC 11.4.0 · CMake 3.22.1 · Ninja ·
 WebKitGTK 2.50.4（`webkit2gtk-4.1`）+ GTK 3.24.33 · Node 12 · Xvfb
-`build-linux/crosscalc` **1,730,328 字节**（编译 0 警告）
+`build-linux/crosscalc` 本机 **1,730,328 字节**，CI（`ubuntu-22.04`）产物 **1,751,152 字节**（均为编译 0 警告）
 
 依赖版本：**tinyexpr-plusplus `404688c`** · cpp-httplib v0.38.0 · webview 0.12.0 ·
 cpp-embedlib main · nlohmann/json v3.12.0 · Microsoft.Web.WebView2 1.0.1150.38
@@ -409,15 +409,19 @@ cpp-embedlib main · nlohmann/json v3.12.0 · Microsoft.Web.WebView2 1.0.1150.38
 
 | 层 | Windows | Linux |
 |---|---|---|
-| ① 单元测试 | 45 用例 / 265+ 断言 | 同 |
-| ① 黄金向量 | 318 条（跳过 5 条 QWORD）/ 635 断言 | 318 条（**一条不跳**，全部执行） |
-| ② HTTP 端到端 | 1030+ 断言 | 同 |
+| ① 单元测试 | 44 用例 / 265 断言 | 44 用例 / 266 断言 |
+| ① 黄金向量（共 324 条） | 执行 318 条（跳过 6 条）/ 635 断言 | 执行 322 条（跳过 2 条）/ 643 断言 |
+| ② HTTP 端到端（同一批向量经真实进程回放） | 1050 断言 | 1062 断言 |
 | ③ 前端一致性 | 通过（含 Node 实跑） | 同 |
 | ④ app.js 纯函数 | 330 断言（300 条与 BigInt 对照） | 同 |
 | ⑤ GUI 冒烟（Xvfb） | —（无桌面会话） | 通过，日志里可见窗口自己拉的 `/app.js` |
 
-**QWORD 的差异是真实的、也是设计目标**：Windows 上 5 条 64 位用例被跳过并给出明确提示，
-Linux 上全部执行且结果精确。这正是 [docs/design-decisions.md 第 3 条](docs/design-decisions.md) 选定的行为。
+**两边跳过条数不同是真实的、也正是设计目标**：324 条里 5 条打 `requires_64bit`、1 条打
+`arith: "extended"`、2 条打 `arith: "double"`。Windows 只跳过前 6 条（并在结果里给出明确提示），
+Linux 只跳过最后 2 条 —— 也就是说 64 位整数在 Linux 上确实全部执行且结果精确。
+差异完全来自向量数据里的字段声明，C++（`vector_runner.cpp`）与 Python（`e2e_api.py`）两侧的
+闸门写法刻意保持一致，不存在“某一边偷偷放水”的可能。
+这正是 [docs/design-decisions.md 第 3 条](docs/design-decisions.md) 选定的行为。
 
 ### GitHub Actions
 

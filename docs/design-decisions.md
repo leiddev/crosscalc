@@ -109,7 +109,8 @@ const double value = static_cast<double>(raw);   // ← 错的
 **只有在「显示」这一步**才按 double 精度收敛，理由见第 12 条。
 
 → 回归用例：`tests/test_calc.cpp` 的「引擎能力」一组；`tests/vectors/programmer.json`
-里 6 条 QWORD 用例带 `requires_64bit`，在不支持的平台上自动跳过。
+里 5 条 QWORD 用例带 `requires_64bit`，在不支持的平台上自动跳过。另有 1 条 `arith: "extended"`
+与 2 条 `arith: "double"` 用例，见第 12 条。
 
 ---
 
@@ -132,7 +133,7 @@ tinyexpr++ 有**三种互不相同的失败方式**，如果只写一个 `if` �
 
 `Engine::evaluate()` 承诺**永不抛异常**，调用方不必写 try/catch。
 
-→ 回归用例：`tests/vectors/errors.json`（59 条专门跑错误路径）。
+→ 回归用例：`tests/vectors/errors.json`（58 条专门跑错误路径）。
 
 ---
 
