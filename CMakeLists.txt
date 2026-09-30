@@ -20,7 +20,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(crosscalc
-    VERSION     0.1.0
+    VERSION     0.1.1
     DESCRIPTION "跨平台计算器：标准 / 科学 / 程序员三种模式 (tinyexpr++ + webview)"
     LANGUAGES   CXX)
 
